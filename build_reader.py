@@ -75,7 +75,7 @@ HTML = r"""<!doctype html>
     .progress-track { height: 4px; margin-top: 9px; background: #27302a; border-radius: 2px; overflow: hidden; }
     .progress-fill { height: 100%; width: 0; background: var(--green); transition: width .2s ease; }
     .toolbar {
-      display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto;
+      display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto;
       align-items: center; gap: 10px; padding: 12px;
       border: 1px solid var(--line); border-radius: 8px; background: rgba(23, 29, 26, .92);
     }
@@ -110,6 +110,16 @@ HTML = r"""<!doctype html>
     .button:disabled { opacity: .38; cursor: not-allowed; }
     .button.primary { border-color: #62806b; background: #24382b; color: #d7f4df; }
     .button.primary:hover:not(:disabled) { background: #2b4434; }
+    .button.saved { border-color: #547a60; background: #1d3024; color: var(--green); }
+    .button.subtle { min-height: 32px; padding: 0 9px; font-size: 12px; }
+    .view-tabs { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 7px; background: #111714; }
+    .view-tab {
+      min-height: 32px; padding: 0 11px; border: 0; border-radius: 4px;
+      background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap;
+      font-size: 12px;
+    }
+    .view-tab[aria-pressed="true"] { background: #2a3730; color: var(--text); }
+    .view-tab-count { margin-left: 4px; color: var(--green); font-variant-numeric: tabular-nums; }
     .page-meta {
       display: flex; align-items: center; justify-content: space-between; gap: 16px;
       margin: 21px 2px 10px; color: var(--muted); font-size: 12px;
@@ -126,6 +136,7 @@ HTML = r"""<!doctype html>
     .word { font-size: 25px; line-height: 1.25; font-weight: 650; letter-spacing: 0; overflow-wrap: anywhere; }
     .gloss { color: var(--green); font-size: 17px; }
     .stats { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 7px; color: var(--muted); font-size: 12px; }
+    .entry-actions { display: flex; margin-top: 12px; }
     .examples { display: grid; gap: 13px; margin-top: 18px; }
     .example {
       padding-left: 14px; border-left: 2px solid #384b3d;
@@ -152,6 +163,7 @@ HTML = r"""<!doctype html>
       .progress { width: 100%; }
       .toolbar { grid-template-columns: 1fr auto; gap: 9px; padding: 10px; }
       .search-wrap { grid-column: 1 / -1; }
+      .view-tabs { grid-column: 1 / -1; justify-self: start; }
       .toolbar-meta { text-align: left; }
       .jump { justify-self: end; }
       .pager { grid-column: 1 / -1; justify-content: space-between; }
@@ -198,6 +210,10 @@ HTML = r"""<!doctype html>
         <input class="search" id="search" type="search" placeholder="搜索英文、中文释义或例句" autocomplete="off">
         <button class="clear-search" id="clear-search" type="button" title="清除搜索" aria-label="清除搜索" hidden>×</button>
       </label>
+      <nav class="view-tabs" aria-label="词本视图">
+        <button class="view-tab" id="all-tab" type="button" aria-pressed="true">全部</button>
+        <button class="view-tab" id="saved-tab" type="button" aria-pressed="false">个人词本<span class="view-tab-count" id="saved-count">0</span></button>
+      </nav>
       <div class="toolbar-meta" id="result-count"><strong>1–50</strong> / 2,500</div>
       <label class="jump">跳至
         <input class="jump-input" id="jump" type="number" min="1" max="50" value="1" aria-label="跳转到页码">
@@ -229,14 +245,49 @@ HTML = r"""<!doctype html>
       const clearSearch = document.getElementById("clear-search");
       const entriesNode = document.getElementById("entries");
       const jump = document.getElementById("jump");
+      const savedCountNode = document.getElementById("saved-count");
+      const savedStorageKey = "paperwords-personal-vocabulary-v1";
+      let savedRanks = loadSavedRanks();
+      let activeView = "all";
       let page = Math.max(1, Number.parseInt(params.get("page") || "1", 10) || 1);
       let query = "";
       let filtered = allEntries;
+
+      function loadSavedRanks() {
+        try {
+          const value = JSON.parse(localStorage.getItem(savedStorageKey) || "[]");
+          return new Set(Array.isArray(value) ? value.filter(Number.isInteger) : []);
+        } catch {
+          return new Set();
+        }
+      }
+
+      function saveSavedRanks() {
+        try {
+          localStorage.setItem(savedStorageKey, JSON.stringify([...savedRanks]));
+        } catch {
+          document.getElementById("page-range").textContent = "浏览器未能保存个人词本，请检查本地存储设置";
+        }
+      }
 
       const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
       })[char]);
       const totalPages = () => Math.max(1, Math.ceil(filtered.length / pageSize));
+
+      function refreshResults(resetPage = true) {
+        filtered = allEntries.filter((entry) => {
+          if (activeView === "saved" && !savedRanks.has(entry.rank)) return false;
+          if (!query) return true;
+          const haystack = [
+            entry.word, entry.word_zh,
+            ...(entry.examples || []).flatMap((example) => [example.text, example.translation_zh, example.paper_key])
+          ].join(" ").toLocaleLowerCase();
+          return haystack.includes(query);
+        });
+        page = resetPage ? 1 : Math.min(page, totalPages());
+        render();
+      }
 
       function updateControls() {
         const pages = totalPages();
@@ -244,13 +295,16 @@ HTML = r"""<!doctype html>
         const start = filtered.length ? (page - 1) * pageSize + 1 : 0;
         const end = Math.min(page * pageSize, filtered.length);
         document.getElementById("total-count").textContent = allEntries.length.toLocaleString();
+        savedCountNode.textContent = String(savedRanks.size);
         document.getElementById("result-count").innerHTML =
           `<strong>${start.toLocaleString()}–${end.toLocaleString()}</strong> / ${filtered.length.toLocaleString()}`;
-        document.getElementById("page-range").textContent =
-          query ? `搜索结果 ${start.toLocaleString()}–${end.toLocaleString()}` :
-            `词频排名 ${filtered.length ? filtered[start - 1].rank.toLocaleString() : 0}–${filtered.length ? filtered[end - 1].rank.toLocaleString() : 0}`;
+        document.getElementById("page-range").textContent = filtered.length
+          ? `${activeView === "saved" ? "个人词本" : query ? "搜索结果" : "词频排名"} ${start.toLocaleString()}–${end.toLocaleString()}`
+          : activeView === "saved" ? "个人词本还是空的" : "没有匹配的词条";
         document.getElementById("progress-label").textContent = `第 ${page} 页 / ${pages}`;
         document.getElementById("progress-fill").style.width = `${(page / pages) * 100}%`;
+        document.getElementById("all-tab").setAttribute("aria-pressed", String(activeView === "all"));
+        document.getElementById("saved-tab").setAttribute("aria-pressed", String(activeView === "saved"));
         jump.max = String(pages);
         jump.value = String(page);
         document.getElementById("jump-total").textContent = `/ ${pages}`;
@@ -280,6 +334,7 @@ HTML = r"""<!doctype html>
             </div>
           </article>`;
         }).join("");
+        const isSaved = savedRanks.has(entry.rank);
         return `<article class="entry" id="word-${entry.rank}">
           <div class="rank">${String(entry.rank).padStart(4, "0")}</div>
           <div class="entry-main">
@@ -291,6 +346,13 @@ HTML = r"""<!doctype html>
               <span>出现 ${Number(entry.frequency).toLocaleString()} 次</span>
               <span>见于 ${entry.paper_count} 篇论文</span>
             </div>
+            <div class="entry-actions">
+              <button class="button subtle ${isSaved ? "saved" : ""}" type="button"
+                data-save-rank="${entry.rank}" aria-pressed="${isSaved}"
+                title="${isSaved ? "从个人词本移除" : "添加到个人词本"}">
+                <span aria-hidden="true">${isSaved ? "✓" : "+"}</span>${isSaved ? "已加入个人词本" : "加入个人词本"}
+              </button>
+            </div>
             <div class="examples">${examples}</div>
           </div>
         </article>`;
@@ -301,7 +363,7 @@ HTML = r"""<!doctype html>
         const visible = filtered.slice(start, start + pageSize);
         entriesNode.innerHTML = visible.length
           ? visible.map(renderEntry).join("")
-          : `<div class="empty">没有找到匹配的词条。试试英文单词或中文释义。</div>`;
+          : `<div class="empty">${activeView === "saved" && !query ? "个人词本还是空的。浏览全部词条，遇到想复习的词就加入进来。" : "没有找到匹配的词条。试试英文单词或中文释义。"}</div>`;
         updateControls();
       }
 
@@ -313,16 +375,31 @@ HTML = r"""<!doctype html>
 
       function setQuery(value) {
         query = value.trim().toLocaleLowerCase();
-        filtered = query ? allEntries.filter((entry) => {
-          const haystack = [
-            entry.word, entry.word_zh,
-            ...(entry.examples || []).flatMap((example) => [example.text, example.translation_zh, example.paper_key])
-          ].join(" ").toLocaleLowerCase();
-          return haystack.includes(query);
-        }) : allEntries;
-        page = 1;
-        render();
+        refreshResults();
       }
+
+      entriesNode.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-save-rank]");
+        if (!button) return;
+        const rank = Number(button.dataset.saveRank);
+        if (savedRanks.has(rank)) savedRanks.delete(rank);
+        else savedRanks.add(rank);
+        try {
+          localStorage.setItem(savedStorageKey, JSON.stringify([...savedRanks]));
+        } catch {
+          savedRanks.delete(rank);
+          document.getElementById("page-range").textContent = "浏览器未能保存个人词本，请检查本地存储设置";
+        }
+        refreshResults(false);
+      });
+      document.getElementById("all-tab").addEventListener("click", () => {
+        activeView = "all";
+        refreshResults();
+      });
+      document.getElementById("saved-tab").addEventListener("click", () => {
+        activeView = "saved";
+        refreshResults();
+      });
 
       document.getElementById("previous").addEventListener("click", () => setPage(page - 1));
       document.getElementById("next").addEventListener("click", () => setPage(page + 1));
@@ -353,15 +430,8 @@ HTML = r"""<!doctype html>
 
       search.value = params.get("q") || "";
       query = search.value.trim().toLocaleLowerCase();
-      if (query) {
-        filtered = allEntries.filter((entry) =>
-          [entry.word, entry.word_zh, ...(entry.examples || []).flatMap((example) =>
-            [example.text, example.translation_zh, example.paper_key]
-          )].join(" ").toLocaleLowerCase().includes(query)
-        );
-      }
+      refreshResults(false);
       page = Math.min(page, totalPages());
-      render();
     })();
   </script>
 </body>

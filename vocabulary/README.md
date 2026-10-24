@@ -3,7 +3,7 @@
 2,500 words from 50 papers, divided into 50 notebooks.
 873,490 counted occurrences; 32,849 distinct word forms; 4,998 indexed source sentences.
 
-[Open the dark-mode paginated reader](reader.html). It shows 50 words per page and supports English/Chinese search.
+[Open the dark-mode paginated reader](reader.html). It shows 50 words per page and supports English/Chinese search. Add useful words to a personal vocabulary list; saved words stay in the current browser.
 
 ## Counting Rules
 
