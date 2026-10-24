@@ -1,0 +1,7 @@
+{
+  "batch_count": 25,
+  "word_count": 2500,
+  "sentence_count": 1993,
+  "words_per_batch": 100,
+  "sentences_per_batch": 80
+}

@@ -1,0 +1,475 @@
+{
+  "generated_at": "2026-10-24T07:55:17.451467+00:00",
+  "extractor_version": 2,
+  "paper_count": 50,
+  "page_count": 1919,
+  "ocr_pages": [
+    {
+      "paper": "GPT-4o",
+      "page": 33
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 1
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 2
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 3
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 4
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 5
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 6
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 7
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 8
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 9
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 10
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 11
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 12
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 13
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 14
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 15
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 16
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 17
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 18
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 19
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 20
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 21
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 22
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 23
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 24
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 25
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 26
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 27
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 28
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 29
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 30
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 31
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 32
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 33
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 34
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 35
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 36
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 37
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 38
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 39
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 40
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 41
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 42
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 43
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 44
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 45
+    },
+    {
+      "paper": "LeNet_CNN",
+      "page": 46
+    },
+    {
+      "paper": "DeepSeek_R1",
+      "page": 75
+    },
+    {
+      "paper": "DeepSeek_R1",
+      "page": 76
+    },
+    {
+      "paper": "DeepSeek_R1",
+      "page": 78
+    }
+  ],
+  "total_tokens": 873490,
+  "unique_tokens": 32849,
+  "selected_words": 2500,
+  "notebooks": 50,
+  "examples": 4998,
+  "single_example_words": [
+    "preprint",
+    "conn"
+  ],
+  "fragment_only_words": [
+    "corr",
+    "pmlr",
+    "aux"
+  ],
+  "sentence_count": 32992,
+  "sources": [
+    {
+      "key": "Transformer",
+      "sha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+      "path": "01_OpenAI_and_Transformer/01_2017_Transformer.pdf"
+    },
+    {
+      "key": "GPT-1",
+      "sha256": "eb81a65e0856bd38e855e1f1de6ee12e7c3eb92ae05c8270d345a475beb631d0",
+      "path": "01_OpenAI_and_Transformer/02_2018_GPT-1.pdf"
+    },
+    {
+      "key": "GPT-2",
+      "sha256": "d9d852e2894556e73f53cb22b7c605a9643d6f0b19bf604b429ed6192fa24f4e",
+      "path": "01_OpenAI_and_Transformer/03_2019_GPT-2.pdf"
+    },
+    {
+      "key": "GPT-3",
+      "sha256": "97fd272f1fdfc18677462d0292f5fbf26ca86b4d1b485c2dba03269b643a0e83",
+      "path": "01_OpenAI_and_Transformer/04_2020_GPT-3.pdf"
+    },
+    {
+      "key": "InstructGPT_RLHF",
+      "sha256": "c1984bb50a5b90fddb895fdc3a0f72e5bc977148c9f63ef6040cbe7a3e1f0d98",
+      "path": "01_OpenAI_and_Transformer/05_2022_InstructGPT_RLHF.pdf"
+    },
+    {
+      "key": "GPT-4",
+      "sha256": "c33a66dadca2388d7b172d6293b00dc32b71110c6f38fafe0d41112e61be7774",
+      "path": "01_OpenAI_and_Transformer/06_2023_GPT-4.pdf"
+    },
+    {
+      "key": "GPT-4o",
+      "sha256": "1d7dbfdec9e1f04402165657ae40012da73dbda4e7581f7489738a4df22deb68",
+      "path": "01_OpenAI_and_Transformer/07_2024_GPT-4o.pdf"
+    },
+    {
+      "key": "Scaling_Laws",
+      "sha256": "a41bd7877fd1a6bcbba096b2619618bd2f90e02488f2365644903eb2f7c6a494",
+      "path": "01_OpenAI_and_Transformer/08_2020_Scaling_Laws.pdf"
+    },
+    {
+      "key": "CLIP",
+      "sha256": "6478b6e571a7d6fcd846d8ef77bfd60c285f1986abb8f475eedc43de403074f5",
+      "path": "01_OpenAI_and_Transformer/09_2021_CLIP.pdf"
+    },
+    {
+      "key": "DALL-E",
+      "sha256": "794e3bd5c486ef87bf527d95c97170fe096a58defe372224c9797590ea436795",
+      "path": "01_OpenAI_and_Transformer/10_2021_DALL-E.pdf"
+    },
+    {
+      "key": "Whisper",
+      "sha256": "6337bde031b2f237547a977b022f831169a7e05b4d9047f29501166d83594566",
+      "path": "01_OpenAI_and_Transformer/11_2022_Whisper.pdf"
+    },
+    {
+      "key": "PPO",
+      "sha256": "e78feadadbdbb0b601b3c2bcc81404722cd431a489b307545f9b7bea1e8c4f5b",
+      "path": "01_OpenAI_and_Transformer/12_2017_PPO.pdf"
+    },
+    {
+      "key": "Anthropic_Helpful_Harmless_RLHF",
+      "sha256": "26e390d4f76938d2e2591225603637c643cc108e94afb756c65f5d2e0fc9037b",
+      "path": "02_Anthropic/13_2022_Anthropic_Helpful_Harmless_RLHF.pdf"
+    },
+    {
+      "key": "Constitutional_AI",
+      "sha256": "9a456a07ad346e3372f9867d346f69f5b0f68b4c65f060aca0b8a13fa9d98e83",
+      "path": "02_Anthropic/14_2022_Constitutional_AI.pdf"
+    },
+    {
+      "key": "Model_Written_Evaluations",
+      "sha256": "7fd476342abaa95cbde50e1c5108765f2c53c3c84a7d55c4f2584fb8aaa01b10",
+      "path": "02_Anthropic/15_2022_Model_Written_Evaluations.pdf"
+    },
+    {
+      "key": "Sleeper_Agents",
+      "sha256": "988e62785a47533775a543c78415dd0994341987f3124d57a81f46c931227bed",
+      "path": "02_Anthropic/16_2024_Sleeper_Agents.pdf"
+    },
+    {
+      "key": "Gemini_1",
+      "sha256": "8ca95b27851b09c335fa2abe9b84cec5848195a5914eec7fb0b635ba2d8fe4fe",
+      "path": "03_Google_DeepMind/17_2023_Gemini_1.pdf"
+    },
+    {
+      "key": "Gemini_1.5",
+      "sha256": "abcd3b8e4b54721ff2d2323204f7b2ad9212b0ff6c8ed77725657526a5418b13",
+      "path": "03_Google_DeepMind/18_2024_Gemini_1.5.pdf"
+    },
+    {
+      "key": "Gemini_2.5",
+      "sha256": "b4cfe19f7eea7b0308cb0282127ef4821bb8f1d1e270e7a6f398b30fe57d41cb",
+      "path": "03_Google_DeepMind/19_2025_Gemini_2.5.pdf"
+    },
+    {
+      "key": "Chinchilla",
+      "sha256": "3fd3632a8ef48171bd25282990221d49535d75356192f068b3b2ebe08f2aedd4",
+      "path": "03_Google_DeepMind/20_2022_Chinchilla.pdf"
+    },
+    {
+      "key": "AlphaZero",
+      "sha256": "26c43408551c22f4fdc98e47f9b4592ab2161fac1ba5df27c897f46d8b6cec7f",
+      "path": "03_Google_DeepMind/21_2017_AlphaZero.pdf"
+    },
+    {
+      "key": "Flamingo",
+      "sha256": "27af622bf50987fd98a03451a27a670adfaeefd5218a3e990b37abc326ba63f0",
+      "path": "03_Google_DeepMind/22_2022_Flamingo.pdf"
+    },
+    {
+      "key": "LeNet_CNN",
+      "sha256": "948f557fd56bcd276ca7b74feaab1b18108319c13f9818083bebd3bfe2fd7bf4",
+      "path": "04_Computer_Vision/23_1998_LeNet_CNN.pdf"
+    },
+    {
+      "key": "AlexNet",
+      "sha256": "90137160c57217953d5f61857e64ca58e85f06e1b13b4f475c918b1b582b9771",
+      "path": "04_Computer_Vision/24_2012_AlexNet.pdf"
+    },
+    {
+      "key": "VGG",
+      "sha256": "83728f9efc21081792902b4c17a4657022d1e4a92ec81655c2427f4ef0755e50",
+      "path": "04_Computer_Vision/25_2014_VGG.pdf"
+    },
+    {
+      "key": "ResNet",
+      "sha256": "1e0651b6810ecba34a3dbc5b5b0209226f889004607c1f203540a48d64e5a93a",
+      "path": "04_Computer_Vision/26_2015_ResNet.pdf"
+    },
+    {
+      "key": "ViT",
+      "sha256": "8ce7b83971a14508ca711a27c875c9b6914c4f6767cf3150fb1ca6c07aa056d6",
+      "path": "04_Computer_Vision/27_2020_ViT.pdf"
+    },
+    {
+      "key": "Swin_Transformer",
+      "sha256": "dfdc7631fe2a35bb5892080b9c0eeadc4432d55cf1856f84bc88802efa877a7c",
+      "path": "04_Computer_Vision/28_2021_Swin_Transformer.pdf"
+    },
+    {
+      "key": "Segment_Anything",
+      "sha256": "c6ca524e47200c3e542587ca76ac1dbc89cc67340f948c819250d16fdbd90cfb",
+      "path": "04_Computer_Vision/29_2023_Segment_Anything.pdf"
+    },
+    {
+      "key": "DDPM",
+      "sha256": "aee5e07a802e8dfd2a386374c94fd61d1d056cb7e1e0fec4f28e8120ff5d8505",
+      "path": "05_Generative_Models/30_2020_DDPM.pdf"
+    },
+    {
+      "key": "DDIM",
+      "sha256": "07cb8796d7c100bf7c02bc575f16aab72c32630a8f85abd54ad45dc4f63e80fb",
+      "path": "05_Generative_Models/31_2020_DDIM.pdf"
+    },
+    {
+      "key": "Score_SDE",
+      "sha256": "b244b740e60628d01bc3d4b98d721c2343be1fb9b67ad22593c8555e66f4d4a6",
+      "path": "05_Generative_Models/32_2020_Score_SDE.pdf"
+    },
+    {
+      "key": "Latent_Diffusion_Stable_Diffusion",
+      "sha256": "46ede043a8dc07ca1f0f445620523fe1ad8b2436bd83856a3835612a47e9f79e",
+      "path": "05_Generative_Models/33_2021_Latent_Diffusion_Stable_Diffusion.pdf"
+    },
+    {
+      "key": "DiT",
+      "sha256": "5fbb0ec35e3ae76826240171ca63ed4c27de6cb43180367453019e9d28a8b076",
+      "path": "05_Generative_Models/34_2022_DiT.pdf"
+    },
+    {
+      "key": "Flow_Matching",
+      "sha256": "5eeb39ba516396924aba4787452f9d0abdee88467a4d0c264d9f66cad0c5ee14",
+      "path": "05_Generative_Models/35_2022_Flow_Matching.pdf"
+    },
+    {
+      "key": "GAN",
+      "sha256": "ff5819e3a7b713c3bd3107b7de3d51fe0a347aa5d8444f0efdcf2345ef0a8b63",
+      "path": "05_Generative_Models/36_2014_GAN.pdf"
+    },
+    {
+      "key": "VAE",
+      "sha256": "bdcb63b79ed88f64f8ee2d43a721930d01dde5441a4dba20ecaa2342b34e017c",
+      "path": "05_Generative_Models/37_2013_VAE.pdf"
+    },
+    {
+      "key": "BERT",
+      "sha256": "5692a5514787a8c6727b4ff3b726a3385798bc68e12138d1d4af83947e2acf6e",
+      "path": "06_LLM_and_Training/38_2018_BERT.pdf"
+    },
+    {
+      "key": "LLaMA",
+      "sha256": "2e663675ae36ad12adb2f5a05281bac2747ecf8d23d92bedd9f937a89fee7136",
+      "path": "06_LLM_and_Training/39_2023_LLaMA.pdf"
+    },
+    {
+      "key": "Llama_3",
+      "sha256": "481f1599468f95a07d05e97fafe55bbe786dc1624c6f881bcb4c7d14c933d083",
+      "path": "06_LLM_and_Training/40_2024_Llama_3.pdf"
+    },
+    {
+      "key": "DeepSeek_V3",
+      "sha256": "812a3fd645c80725354de9d831a6785503007a60681461407f64e97305fa9330",
+      "path": "06_LLM_and_Training/41_2024_DeepSeek_V3.pdf"
+    },
+    {
+      "key": "DeepSeek_R1",
+      "sha256": "b191b0a365a64b4ab2791d117069ed17a2933d03554a662ced58b37df52018f4",
+      "path": "06_LLM_and_Training/42_2025_DeepSeek_R1.pdf"
+    },
+    {
+      "key": "DPO",
+      "sha256": "92cb3a2b71362acda98a789b03d88688fd33cf5fcf13f81d2b1de30ee7d3b67a",
+      "path": "06_LLM_and_Training/43_2023_DPO.pdf"
+    },
+    {
+      "key": "LoRA",
+      "sha256": "e9a0d3128767db616085dc0f4e6e455e672e89af823e8ed1282793682787395a",
+      "path": "06_LLM_and_Training/44_2021_LoRA.pdf"
+    },
+    {
+      "key": "RAG",
+      "sha256": "23e3249e9a1e75418d82efecab0ea8c4d033b89c93742f63208d47ce01f21233",
+      "path": "06_LLM_and_Training/45_2020_RAG.pdf"
+    },
+    {
+      "key": "pi0",
+      "sha256": "fbdfba56258bdbd220207ba63410c6c943e43a73e97a7a5a47ca0bc74204f821",
+      "path": "07_Robotics/46_2024_pi0.pdf"
+    },
+    {
+      "key": "pi0.5",
+      "sha256": "6a1029fd8ab6944b74cf22f5e5d30e60bc15699d964b2900af799b807a34b64c",
+      "path": "07_Robotics/47_2025_pi0.5.pdf"
+    },
+    {
+      "key": "pi0.6_star_RECAP",
+      "sha256": "9f4f5a3070ad9549ea7687ea54baa19858820dbcc0834cc805212d68fd6c8cb3",
+      "path": "07_Robotics/48_2025_pi0.6_star_RECAP.pdf"
+    },
+    {
+      "key": "pi0.7",
+      "sha256": "54843c88fbabf6bce53ab2ee94cafc9a55c3d5639f7b74c5e8ad24485fe6863b",
+      "path": "07_Robotics/49_2026_pi0.7.pdf"
+    },
+    {
+      "key": "RT-2",
+      "sha256": "0a62dc36bbbfdea232ad45a0ab75c82e9cf535b55333ff22c02d5da1897ccac3",
+      "path": "07_Robotics/50_2023_RT-2.pdf"
+    }
+  ]
+}

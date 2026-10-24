@@ -1,0 +1,1183 @@
+Proximal Policy Optimization Algorithms
+PDF: 01_OpenAI_and_Transformer/12_2017_PPO.pdf
+
+===== PDF PAGE 1 | text =====
+
+[BLOCK 1]
+Proximal Policy Optimization Algorithms
+
+[BLOCK 2]
+John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, Oleg Klimov
+
+[BLOCK 3]
+OpenAI {joschu, filip, prafulla, alec, oleg}@openai.com
+
+[BLOCK 4]
+Abstract
+
+[BLOCK 5]
+We propose a new family of policy gradient methods for reinforcement learning, which alternate between sampling data through interaction with the environment, and optimizing a “surrogate” objective function using stochastic gradient ascent. Whereas standard policy gradient methods perform one gradient update per data sample, we propose a novel objective function that enables multiple epochs of minibatch updates. The new methods, which we call proximal policy optimization (PPO), have some of the benefits of trust region policy optimization (TRPO), but they are much simpler to implement, more general, and have better sample complexity (empirically). Our experiments test PPO on a collection of benchmark tasks, including simulated robotic locomotion and Atari game playing, and we show that PPO outperforms other online policy gradient methods, and overall strikes a favorable balance between sample complexity, simplicity, and wall-time.
+
+[BLOCK 6]
+1 Introduction
+
+[BLOCK 7]
+In recent years, several different approaches have been proposed for reinforcement learning with neural network function approximators. The leading contenders are deep Q-learning [Mni+15], “vanilla” policy gradient methods [Mni+16], and trust region / natural policy gradient methods [Sch+15b]. However, there is room for improvement in developing a method that is scalable (to large models and parallel implementations), data efficient, and robust (i.e., successful on a variety of problems without hyperparameter tuning). Q-learning (with function approximation) fails on many simple problems1 and is poorly understood, vanilla policy gradient methods have poor data effiency and robustness; and trust region policy optimization (TRPO) is relatively complicated, and is not compatible with architectures that include noise (such as dropout) or parameter sharing (between the policy and value function, or with auxiliary tasks).
+
+[BLOCK 8]
+This paper seeks to improve the current state of affairs by introducing an algorithm that attains the data efficiency and reliable performance of TRPO, while using only first-order optimization. We propose a novel objective with clipped probability ratios, which forms a pessimistic estimate (i.e., lower bound) of the performance of the policy. To optimize policies, we alternate between sampling data from the policy and performing several epochs of optimization on the sampled data.
+
+[BLOCK 9]
+Our experiments compare the performance of various different versions of the surrogate objective, and find that the version with the clipped probability ratios performs best. We also compare PPO to several previous algorithms from the literature. On continuous control tasks, it performs better than the algorithms we compare against. On Atari, it performs significantly better (in terms of sample complexity) than A2C and similarly to ACER though it is much simpler.
+
+[BLOCK 10]
+1While DQN works well on game environments like the Arcade Learning Environment [Bel+15] with discrete action spaces, it has not been demonstrated to perform well on continuous control benchmarks such as those in OpenAI Gym [Bro+16] and described by Duan et al. [Dua+16].
+
+===== PDF PAGE 2 | text =====
+
+[BLOCK 1]
+2 Background: Policy Optimization
+
+[BLOCK 2]
+2.1 Policy Gradient Methods
+
+[BLOCK 3]
+Policy gradient methods work by computing an estimator of the policy gradient and plugging it into a stochastic gradient ascent algorithm. The most commonly used gradient estimator has the form
+
+[BLOCK 4]
+h
+
+[BLOCK 5]
+ˆg = ˆEt
+
+[BLOCK 6]
+i
+
+[BLOCK 7]
+∇θ log πθ(at | st) ˆAt
+
+[BLOCK 8]
+(1)
+
+[BLOCK 9]
+where πθ is a stochastic policy and ˆAt is an estimator of the advantage function at timestep t. Here, the expectation ˆEt[. . .] indicates the empirical average over a finite batch of samples, in an algorithm that alternates between sampling and optimization. Implementations that use automatic differentiation software work by constructing an objective function whose gradient is the policy gradient estimator; the estimator ˆg is obtained by differentiating the objective
+
+[BLOCK 10]
+h
+
+[BLOCK 11]
+LPG(θ) = ˆEt
+
+[BLOCK 12]
+i
+
+[BLOCK 13]
+log πθ(at | st) ˆAt
+
+[BLOCK 14]
+. (2)
+
+[BLOCK 15]
+While it is appealing to perform multiple steps of optimization on this loss LPG using the same trajectory, doing so is not well-justified, and empirically it often leads to destructively large policy updates (see Section 6.1; results are not shown but were similar or worse than the “no clipping or penalty” setting).
+
+[BLOCK 16]
+2.2 Trust Region Methods
+
+[BLOCK 17]
+In TRPO [Sch+15b], an objective function (the “surrogate” objective) is maximized subject to a constraint on the size of the policy update. Specifically,
+
+[BLOCK 18]
+πθ(at | st)
+
+[BLOCK 19]
+ˆEt
+
+[BLOCK 20]
+maximize
+
+[BLOCK 21]
+ˆAt
+
+[BLOCK 22]
+(3)
+
+[BLOCK 23]
+πθold(at | st)
+
+[BLOCK 24]
+θ
+
+[BLOCK 25]
+subject to ˆEt[KL[πθold(· | st), πθ(· | st)]] ≤δ. (4)
+
+[BLOCK 26]
+Here, θold is the vector of policy parameters before the update. This problem can efficiently be approximately solved using the conjugate gradient algorithm, after making a linear approximation to the objective and a quadratic approximation to the constraint.
+
+[BLOCK 27]
+The theory justifying TRPO actually suggests using a penalty instead of a constraint, i.e., solving the unconstrained optimization problem
+
+[BLOCK 28]
+πθ(at | st)
+
+[BLOCK 29]
+ˆEt
+
+[BLOCK 30]
+ˆAt -β KL[πθold(· | st), πθ(· | st)]
+
+[BLOCK 31]
+maximize
+
+[BLOCK 32]
+πθold(at | st)
+
+[BLOCK 33]
+θ
+
+[BLOCK 34]
+(5)
+
+[BLOCK 35]
+for some coefficient β. This follows from the fact that a certain surrogate objective (which computes the max KL over states instead of the mean) forms a lower bound (i.e., a pessimistic bound) on the performance of the policy π. TRPO uses a hard constraint rather than a penalty because it is hard to choose a single value of β that performs well across different problems-or even within a single problem, where the the characteristics change over the course of learning. Hence, to achieve our goal of a first-order algorithm that emulates the monotonic improvement of TRPO, experiments show that it is not sufficient to simply choose a fixed penalty coefficient β and optimize the penalized objective Equation (5) with SGD; additional modifications are required.
+
+===== PDF PAGE 3 | text =====
+
+[BLOCK 1]
+3 Clipped Surrogate Objective
+
+[BLOCK 2]
+Let rt(θ) denote the probability ratio rt(θ) = πθ(at | st) πθold(at | st), so r(θold) = 1. TRPO maximizes a “surrogate” objective
+
+[BLOCK 3]
+πθ(at | st)
+
+[BLOCK 4]
+LCPI(θ) = ˆEt
+
+[BLOCK 5]
+h
+
+[BLOCK 6]
+i
+
+[BLOCK 7]
+= ˆEt
+
+[BLOCK 8]
+ˆAt
+
+[BLOCK 9]
+rt(θ) ˆAt
+
+[BLOCK 10]
+. (6)
+
+[BLOCK 11]
+πθold(at | st)
+
+[BLOCK 12]
+The superscript CPI refers to conservative policy iteration [KL02], where this objective was proposed. Without a constraint, maximization of LCPI would lead to an excessively large policy update; hence, we now consider how to modify the objective, to penalize changes to the policy that move rt(θ) away from 1.
+
+[BLOCK 13]
+The main objective we propose is the following:
+
+[BLOCK 14]
+h
+
+[BLOCK 15]
+LCLIP (θ) = ˆEt
+
+[BLOCK 16]
+i
+
+[BLOCK 17]
+min(rt(θ) ˆAt, clip(rt(θ), 1 -ε, 1 + ε) ˆAt)
+
+[BLOCK 18]
+(7)
+
+[BLOCK 19]
+where epsilon is a hyperparameter, say, ε = 0.2. The motivation for this objective is as follows. The first term inside the min is LCPI. The second term, clip(rt(θ), 1-ε, 1+ε) ˆAt, modifies the surrogate objective by clipping the probability ratio, which removes the incentive for moving rt outside of the interval [1 -ε, 1 + ε]. Finally, we take the minimum of the clipped and unclipped objective, so the final objective is a lower bound (i.e., a pessimistic bound) on the unclipped objective. With this scheme, we only ignore the change in probability ratio when it would make the objective improve, and we include it when it makes the objective worse. Note that LCLIP (θ) = LCPI(θ) to first order around θold (i.e., where r = 1), however, they become different as θ moves away from θold. Figure 1 plots a single term (i.e., a single t) in LCLIP ; note that the probability ratio r is clipped at 1 -ε or 1 + ε depending on whether the advantage is positive or negative.
+
+[BLOCK 20]
+A > 0
+
+[BLOCK 21]
+LCLIP
+
+[BLOCK 22]
+r
+
+[BLOCK 23]
+0 1 1 + ε
+
+[BLOCK 24]
+A < 0
+
+[BLOCK 25]
+0 1 1 -ε
+
+[BLOCK 26]
+r
+
+[BLOCK 27]
+LCLIP
+
+[BLOCK 28]
+Figure 1: Plots showing one term (i.e., a single timestep) of the surrogate function LCLIP as a function of the probability ratio r, for positive advantages (left) and negative advantages (right). The red circle on each plot shows the starting point for the optimization, i.e., r = 1. Note that LCLIP sums many of these terms.
+
+[BLOCK 29]
+Figure 2 provides another source of intuition about the surrogate objective LCLIP . It shows how several objectives vary as we interpolate along the policy update direction, obtained by proximal policy optimization (the algorithm we will introduce shortly) on a continuous control problem. We can see that LCLIP is a lower bound on LCPI, with a penalty for having too large of a policy update.
+
+===== PDF PAGE 4 | text =====
+
+[BLOCK 1]
+0.12 Et[KLt]
+
+[BLOCK 2]
+0.10
+
+[BLOCK 3]
+0.08
+
+[BLOCK 4]
+0.06
+
+[BLOCK 5]
+0.04
+
+[BLOCK 6]
+0.02
+
+[BLOCK 7]
+0.00
+
+[BLOCK 8]
+0.02
+
+[BLOCK 9]
+0 1 Linear interpolation factor
+
+[BLOCK 10]
+LCPI = Et[rtAt]
+
+[BLOCK 11]
+Et[clip(rt, 1 , 1 + )At]
+
+[BLOCK 12]
+LCLIP = Et[min(rtAt, clip(rt, 1 , 1 + )At)]
+
+[BLOCK 13]
+Figure 2: Surrogate objectives, as we interpolate between the initial policy parameter θold, and the updated policy parameter, which we compute after one iteration of PPO. The updated policy has a KL divergence of about 0.02 from the initial policy, and this is the point at which LCLIP is maximal. This plot corresponds to the first policy update on the Hopper-v1 problem, using hyperparameters provided in Section 6.1.
+
+[BLOCK 14]
+4 Adaptive KL Penalty Coefficient
+
+[BLOCK 15]
+Another approach, which can be used as an alternative to the clipped surrogate objective, or in addition to it, is to use a penalty on KL divergence, and to adapt the penalty coefficient so that we achieve some target value of the KL divergence dtarg each policy update. In our experiments, we found that the KL penalty performed worse than the clipped surrogate objective, however, we've included it here because it's an important baseline.
+
+[BLOCK 16]
+In the simplest instantiation of this algorithm, we perform the following steps in each policy update:
+
+[BLOCK 17]
+• Using several epochs of minibatch SGD, optimize the KL-penalized objective
+
+[BLOCK 18]
+πθ(at | st)
+
+[BLOCK 19]
+LKLPEN(θ) = ˆEt
+
+[BLOCK 20]
+πθold(at | st)
+
+[BLOCK 21]
+• Compute d = ˆEt[KL[πθold(· | st), πθ(· | st)]]
+
+[BLOCK 22]
+- If d < dtarg/1.5, β ←β/2
+
+[BLOCK 23]
+- If d > dtarg × 1.5, β ←β × 2
+
+[BLOCK 24]
+ˆAt -β KL[πθold(· | st), πθ(· | st)]
+
+[BLOCK 25]
+(8)
+
+[BLOCK 26]
+The updated β is used for the next policy update. With this scheme, we occasionally see policy updates where the KL divergence is significantly different from dtarg, however, these are rare, and β quickly adjusts. The parameters 1.5 and 2 above are chosen heuristically, but the algorithm is not very sensitive to them. The initial value of β is a another hyperparameter but is not important in practice because the algorithm quickly adjusts it.
+
+[BLOCK 27]
+5 Algorithm
+
+[BLOCK 28]
+The surrogate losses from the previous sections can be computed and differentiated with a minor change to a typical policy gradient implementation. For implementations that use automatic differentation, one simply constructs the loss LCLIP or LKLPEN instead of LPG, and one performs multiple steps of stochastic gradient ascent on this objective.
+
+[BLOCK 29]
+Most techniques for computing variance-reduced advantage-function estimators make use a learned state-value function V (s); for example, generalized advantage estimation [Sch+15a], or the
+
+===== PDF PAGE 5 | text =====
+
+[BLOCK 1]
+finite-horizon estimators in [Mni+16]. If using a neural network architecture that shares parameters between the policy and value function, we must use a loss function that combines the policy surrogate and a value function error term. This objective can further be augmented by adding an entropy bonus to ensure sufficient exploration, as suggested in past work [Wil92; Mni+16]. Combining these terms, we obtain the following objective, which is (approximately) maximized each iteration:
+
+[BLOCK 2]
+t (θ) = ˆEt
+
+[BLOCK 3]
+LCLIP+V F+S
+
+[BLOCK 4]
+t (θ) -c1LV F
+
+[BLOCK 5]
+LCLIP
+
+[BLOCK 6]
+t (θ) + c2S[πθ](st)
+
+[BLOCK 7]
+, (9)
+
+[BLOCK 8]
+where c1, c2 are coefficients, and S denotes an entropy bonus, and LV F
+
+[BLOCK 9]
+t is a squared-error loss (Vθ(st) -V targ
+
+[BLOCK 10]
+t )2. One style of policy gradient implementation, popularized in [Mni+16] and well-suited for use with recurrent neural networks, runs the policy for T timesteps (where T is much less than the episode length), and uses the collected samples for an update. This style requires an advantage estimator that does not look beyond timestep T. The estimator used by [Mni+16] is
+
+[BLOCK 11]
+ˆAt = -V (st) + rt + γrt+1 + · · · + γT-t+1rT-1 + γT-tV (sT ) (10)
+
+[BLOCK 12]
+where t specifies the time index in [0, T], within a given length-T trajectory segment. Generalizing this choice, we can use a truncated version of generalized advantage estimation, which reduces to Equation (10) when λ = 1:
+
+[BLOCK 13]
+ˆAt = δt + (γλ)δt+1 + · · · + · · · + (γλ)T-t+1δT-1, (11) where δt = rt + γV (st+1) -V (st) (12)
+
+[BLOCK 14]
+A proximal policy optimization (PPO) algorithm that uses fixed-length trajectory segments is shown below. Each iteration, each of N (parallel) actors collect T timesteps of data. Then we construct the surrogate loss on these NT timesteps of data, and optimize it with minibatch SGD (or usually for better performance, Adam [KB14]), for K epochs.
+
+[BLOCK 15]
+Algorithm 1 PPO, Actor-Critic Style
+
+[BLOCK 16]
+for iteration=1, 2, . . . do
+
+[BLOCK 17]
+for actor=1, 2, . . . , N do
+
+[BLOCK 18]
+Run policy πθold in environment for T timesteps Compute advantage estimates ˆA1, . . . , ˆAT end for Optimize surrogate L wrt θ, with K epochs and minibatch size M ≤NT θold ←θ end for
+
+[BLOCK 19]
+6 Experiments
+
+[BLOCK 20]
+6.1 Comparison of Surrogate Objectives
+
+[BLOCK 21]
+First, we compare several different surrogate objectives under different hyperparameters. Here, we compare the surrogate objective LCLIP to several natural variations and ablated versions.
+
+[BLOCK 22]
+No clipping or penalty: Lt(θ) = rt(θ) ˆAt
+
+[BLOCK 23]
+Clipping: Lt(θ) = min(rt(θ) ˆAt, clip(rt(θ)), 1 -ε, 1 + ε) ˆAt
+
+[BLOCK 24]
+KL penalty (fixed or adaptive) Lt(θ) = rt(θ) ˆAt -β KL[πθold, πθ]
+
+===== PDF PAGE 6 | text =====
+
+[BLOCK 1]
+For the KL penalty, one can either use a fixed penalty coefficient β or an adaptive coefficient as described in Section 4 using target KL value dtarg. Note that we also tried clipping in log space, but found the performance to be no better.
+
+[BLOCK 2]
+Because we are searching over hyperparameters for each algorithm variant, we chose a computationally cheap benchmark to test the algorithms on. Namely, we used 7 simulated robotics tasks2
+
+[BLOCK 3]
+implemented in OpenAI Gym [Bro+16], which use the MuJoCo [TET12] physics engine. We do one million timesteps of training on each one. Besides the hyperparameters used for clipping (ε) and the KL penalty (β, dtarg), which we search over, the other hyperparameters are provided in in Table 3.
+
+[BLOCK 4]
+To represent the policy, we used a fully-connected MLP with two hidden layers of 64 units, and tanh nonlinearities, outputting the mean of a Gaussian distribution, with variable standard deviations, following [Sch+15b; Dua+16]. We don't share parameters between the policy and value function (so coefficient c1 is irrelevant), and we don't use an entropy bonus.
+
+[BLOCK 5]
+Each algorithm was run on all 7 environments, with 3 random seeds on each. We scored each run of the algorithm by computing the average total reward of the last 100 episodes. We shifted and scaled the scores for each environment so that the random policy gave a score of 0 and the best result was set to 1, and averaged over 21 runs to produce a single scalar for each algorithm setting.
+
+[BLOCK 6]
+The results are shown in Table 1. Note that the score is negative for the setting without clipping or penalties, because for one environment (half cheetah) it leads to a very negative score, which is worse than the initial random policy.
+
+[BLOCK 7]
+algorithm avg. normalized score
+
+[BLOCK 8]
+No clipping or penalty -0.39 Clipping, ε = 0.1 0.76 Clipping, ε = 0.2 0.82 Clipping, ε = 0.3 0.70 Adaptive KL dtarg = 0.003 0.68 Adaptive KL dtarg = 0.01 0.74 Adaptive KL dtarg = 0.03 0.71 Fixed KL, β = 0.3 0.62 Fixed KL, β = 1. 0.71 Fixed KL, β = 3. 0.72 Fixed KL, β = 10. 0.69
+
+[BLOCK 9]
+Table 1: Results from continuous control benchmark. Average normalized scores (over 21 runs of the algorithm, on 7 environments) for each algorithm / hyperparameter setting . β was initialized at 1.
+
+[BLOCK 10]
+6.2 Comparison to Other Algorithms in the Continuous Domain
+
+[BLOCK 11]
+Next, we compare PPO (with the “clipped” surrogate objective from Section 3) to several other methods from the literature, which are considered to be effective for continuous problems. We compared against tuned implementations of the following algorithms: trust region policy optimization [Sch+15b], cross-entropy method (CEM) [SL06], vanilla policy gradient with adaptive stepsize3,
+
+[BLOCK 12]
+2HalfCheetah, Hopper, InvertedDoublePendulum, InvertedPendulum, Reacher, Swimmer, and Walker2d, all “-v1” 3After each batch of data, the Adam stepsize is adjusted based on the KL divergence of the original and updated policy, using a rule similar to the one shown in Section 4. An implementation is available at https://github.com/ berkeleydeeprlcourse/homework/tree/master/hw4.
+
+===== PDF PAGE 7 | text =====
+
+[BLOCK 1]
+A2C [Mni+16], A2C with trust region [Wan+16]. A2C stands for advantage actor critic, and is a synchronous version of A3C, which we found to have the same or better performance than the asynchronous version. For PPO, we used the hyperparameters from the previous section, with ε = 0.2. We see that PPO outperforms the previous methods on almost all the continuous control environments.
+
+[BLOCK 2]
+HalfCheetah-v1
+
+[BLOCK 3]
+Hopper-v1
+
+[BLOCK 4]
+0 1000000
+
+[BLOCK 5]
+0 1000000
+
+[BLOCK 6]
+Reacher-v1
+
+[BLOCK 7]
+Swimmer-v1
+
+[BLOCK 8]
+0 1000000
+
+[BLOCK 9]
+0 1000000
+
+[BLOCK 10]
+InvertedDoublePendulum-v1
+
+[BLOCK 11]
+InvertedPendulum-v1
+
+[BLOCK 12]
+0 1000000
+
+[BLOCK 13]
+0 1000000
+
+[BLOCK 14]
+Walker2d-v1
+
+[BLOCK 15]
+A2C A2C + Trust Region CEM PPO (Clip) Vanilla PG, Adaptive TRPO
+
+[BLOCK 16]
+0 1000000
+
+[BLOCK 17]
+Figure 3: Comparison of several algorithms on several MuJoCo environments, training for one million timesteps.
+
+[BLOCK 18]
+6.3 Showcase in the Continuous Domain: Humanoid Running and Steering
+
+[BLOCK 19]
+To showcase the performance of PPO on high-dimensional continuous control problems, we train on a set of problems involving a 3D humanoid, where the robot must run, steer, and get up offthe ground, possibly while being pelted by cubes. The three tasks we test on are (1) RoboschoolHumanoid: forward locomotion only, (2) RoboschoolHumanoidFlagrun: position of target is randomly varied every 200 timesteps or whenever the goal is reached, (3) RoboschoolHumanoid- FlagrunHarder, where the robot is pelted by cubes and needs to get up offthe ground. See Figure 5 for still frames of a learned policy, and Figure 4 for learning curves on the three tasks. Hyperparameters are provided in Table 4. In concurrent work, Heess et al. [Hee+17] used the adaptive KL variant of PPO (Section 4) to learn locomotion policies for 3D robots.
+
+[BLOCK 20]
+2500 RoboschoolHumanoidFlagrun-v0
+
+[BLOCK 21]
+RoboschoolHumanoid-v0
+
+[BLOCK 22]
+RoboschoolHumanoidFlagrunHarder-v0
+
+[BLOCK 23]
+0 100M Timestep
+
+[BLOCK 24]
+0 50M Timestep
+
+[BLOCK 25]
+0 100M Timestep
+
+[BLOCK 26]
+Figure 4: Learning curves from PPO on 3D humanoid control tasks, using Roboschool.
+
+===== PDF PAGE 8 | text =====
+
+[BLOCK 1]
+Figure 5: Still frames of the policy learned from RoboschoolHumanoidFlagrun. In the first six frames, the robot runs towards a target. Then the position is randomly changed, and the robot turns and runs toward the new target.
+
+[BLOCK 2]
+6.4 Comparison to Other Algorithms on the Atari Domain
+
+[BLOCK 3]
+We also ran PPO on the Arcade Learning Environment [Bel+15] benchmark and compared against well-tuned implementations of A2C [Mni+16] and ACER [Wan+16]. For all three algorithms, we used the same policy network architechture as used in [Mni+16]. The hyperparameters for PPO are provided in Table 5. For the other two algorithms, we used hyperparameters that were tuned to maximize performance on this benchmark.
+
+[BLOCK 4]
+A table of results and learning curves for all 49 games is provided in Appendix B. We consider the following two scoring metrics: (1) average reward per episode over entire training period (which favors fast learning), and (2) average reward per episode over last 100 episodes of training (which favors final performance). Table 2 shows the number of games “won” by each algorithm, where we compute the victor by averaging the scoring metric across three trials.
+
+[BLOCK 5]
+A2C ACER PPO Tie
+
+[BLOCK 6]
+(1) avg. episode reward over all of training 1 18 30 0 (2) avg. episode reward over last 100 episodes 1 28 19 1
+
+[BLOCK 7]
+Table 2: Number of games “won” by each algorithm, where the scoring metric is averaged across three trials.
+
+[BLOCK 8]
+7 Conclusion
+
+[BLOCK 9]
+We have introduced proximal policy optimization, a family of policy optimization methods that use multiple epochs of stochastic gradient ascent to perform each policy update. These methods have the stability and reliability of trust-region methods but are much simpler to implement, requiring only few lines of code change to a vanilla policy gradient implementation, applicable in more general settings (for example, when using a joint architecture for the policy and value function), and have better overall performance.
+
+[BLOCK 10]
+8 Acknowledgements
+
+[BLOCK 11]
+Thanks to Rocky Duan, Peter Chen, and others at OpenAI for insightful comments.
+
+===== PDF PAGE 9 | text =====
+
+[BLOCK 1]
+References
+
+[BLOCK 2]
+[Bel+15] M. Bellemare, Y. Naddaf, J. Veness, and M. Bowling. “The arcade learning environment: An evaluation platform for general agents”. In: Twenty-Fourth International Joint Conference on Artificial Intelligence. 2015.
+
+[BLOCK 3]
+[Bro+16] G. Brockman, V. Cheung, L. Pettersson, J. Schneider, J. Schulman, J. Tang, and W. Zaremba. “OpenAI Gym”. In: arXiv preprint arXiv:1606.01540 (2016).
+
+[BLOCK 4]
+[Dua+16] Y. Duan, X. Chen, R. Houthooft, J. Schulman, and P. Abbeel. “Benchmarking Deep Reinforcement Learning for Continuous Control”. In: arXiv preprint arXiv:1604.06778 (2016).
+
+[BLOCK 5]
+[Hee+17] N. Heess, S. Sriram, J. Lemmon, J. Merel, G. Wayne, Y. Tassa, T. Erez, Z. Wang, A. Eslami, M. Riedmiller, et al. “Emergence of Locomotion Behaviours in Rich Environments”. In: arXiv preprint arXiv:1707.02286 (2017).
+
+[BLOCK 6]
+[KL02] S. Kakade and J. Langford. “Approximately optimal approximate reinforcement learning”. In: ICML. Vol. 2. 2002, pp. 267-274.
+
+[BLOCK 7]
+[KB14] D. Kingma and J. Ba. “Adam: A method for stochastic optimization”. In: arXiv preprint arXiv:1412.6980 (2014).
+
+[BLOCK 8]
+[Mni+15] V. Mnih, K. Kavukcuoglu, D. Silver, A. A. Rusu, J. Veness, M. G. Bellemare, A. Graves, M. Riedmiller, A. K. Fidjeland, G. Ostrovski, et al. “Human-level control through deep reinforcement learning”. In: Nature 518.7540 (2015), pp. 529-533.
+
+[BLOCK 9]
+[Mni+16] V. Mnih, A. P. Badia, M. Mirza, A. Graves, T. P. Lillicrap, T. Harley, D. Silver, and K. Kavukcuoglu. “Asynchronous methods for deep reinforcement learning”. In: arXiv preprint arXiv:1602.01783 (2016).
+
+[BLOCK 10]
+[Sch+15a] J. Schulman, P. Moritz, S. Levine, M. Jordan, and P. Abbeel. “High-dimensional continuous control using generalized advantage estimation”. In: arXiv preprint arXiv:1506.02438 (2015).
+
+[BLOCK 11]
+[Sch+15b] J. Schulman, S. Levine, P. Moritz, M. I. Jordan, and P. Abbeel. “Trust region policy optimization”. In: CoRR, abs/1502.05477 (2015).
+
+[BLOCK 12]
+[SL06] I. Szita and A. L ̈orincz. “Learning Tetris using the noisy cross-entropy method”. In: Neural computation 18.12 (2006), pp. 2936-2941.
+
+[BLOCK 13]
+[TET12] E. Todorov, T. Erez, and Y. Tassa. “MuJoCo: A physics engine for model-based control”. In: Intelligent Robots and Systems (IROS), 2012 IEEE/RSJ International Conference on. IEEE. 2012, pp. 5026-5033.
+
+[BLOCK 14]
+[Wan+16] Z. Wang, V. Bapst, N. Heess, V. Mnih, R. Munos, K. Kavukcuoglu, and N. de Freitas. “Sample Efficient Actor-Critic with Experience Replay”. In: arXiv preprint arXiv:1611.01224 (2016).
+
+[BLOCK 15]
+[Wil92] R. J. Williams. “Simple statistical gradient-following algorithms for connectionist re-inforcement learning”. In: Machine learning 8.3-4 (1992), pp. 229-256.
+
+===== PDF PAGE 10 | text =====
+
+[BLOCK 1]
+A Hyperparameters
+
+[BLOCK 2]
+Hyperparameter Value Horizon (T) 2048 Adam stepsize 3 × 10-4
+
+[BLOCK 3]
+Num. epochs 10 Minibatch size 64 Discount (γ) 0.99 GAE parameter (λ) 0.95
+
+[BLOCK 4]
+Table 3: PPO hyperparameters used for the Mujoco 1 million timestep benchmark.
+
+[BLOCK 5]
+Hyperparameter Value Horizon (T) 512 Adam stepsize ∗ Num. epochs 15 Minibatch size 4096 Discount (γ) 0.99 GAE parameter (λ) 0.95 Number of actors 32 (locomotion), 128 (flagrun) Log stdev. of action distribution LinearAnneal(-0.7, -1.6)
+
+[BLOCK 6]
+Table 4: PPO hyperparameters used for the Roboschool experiments. Adam stepsize was adjusted based on the target value of the KL divergence.
+
+[BLOCK 7]
+Hyperparameter Value Horizon (T) 128 Adam stepsize 2.5 × 10-4 × α Num. epochs 3 Minibatch size 32 × 8 Discount (γ) 0.99 GAE parameter (λ) 0.95 Number of actors 8 Clipping parameter ε 0.1 × α VF coeff. c1 (9) 1 Entropy coeff. c2 (9) 0.01
+
+[BLOCK 8]
+Table 5: PPO hyperparameters used in Atari experiments. α is linearly annealed from 1 to 0 over the course of learning.
+
+[BLOCK 9]
+B Performance on More Atari Games
+
+[BLOCK 10]
+Here we include a comparison of PPO against A2C on a larger collection of 49 Atari games. Figure 6 shows the learning curves of each of three random seeds, while Table 6 shows the mean performance.
+
+===== PDF PAGE 11 | text =====
+
+[BLOCK 1]
+Alien
+
+[BLOCK 2]
+Amidar
+
+[BLOCK 3]
+Atlantis
+
+[BLOCK 4]
+BankHeist
+
+[BLOCK 5]
+20000 BattleZone
+
+[BLOCK 6]
+3000000
+
+[BLOCK 7]
+15000
+
+[BLOCK 8]
+2000000
+
+[BLOCK 9]
+10000
+
+[BLOCK 10]
+1000000
+
+[BLOCK 11]
+100 Boxing
+
+[BLOCK 12]
+Breakout
+
+[BLOCK 13]
+10000
+
+[BLOCK 14]
+40000 DemonAttack
+
+[BLOCK 15]
+10.0 DoubleDunk
+
+[BLOCK 16]
+12.5
+
+[BLOCK 17]
+20000
+
+[BLOCK 18]
+15.0
+
+[BLOCK 19]
+17.5
+
+[BLOCK 20]
+Frostbite
+
+[BLOCK 21]
+Gopher
+
+[BLOCK 22]
+40000
+
+[BLOCK 23]
+20000
+
+[BLOCK 24]
+Assault
+
+[BLOCK 25]
+Asterix
+
+[BLOCK 26]
+Asteroids
+
+[BLOCK 27]
+4000 BeamRider
+
+[BLOCK 28]
+Bowling
+
+[BLOCK 29]
+Centipede
+
+[BLOCK 30]
+ChopperCommand
+
+[BLOCK 31]
+CrazyClimber
+
+[BLOCK 32]
+100000
+
+[BLOCK 33]
+50000
+
+[BLOCK 34]
+Enduro
+
+[BLOCK 35]
+FishingDerby
+
+[BLOCK 36]
+Freeway
+
+[BLOCK 37]
+Gravitar
+
+[BLOCK 38]
+4 IceHockey
+
+[BLOCK 39]
+Jamesbond
+
+[BLOCK 40]
+40000 KungFuMaster
+
+[BLOCK 41]
+Kangaroo
+
+[BLOCK 42]
+Krull
+
+[BLOCK 43]
+10000
+
+[BLOCK 44]
+20000
+
+[BLOCK 45]
+NameThisGame
+
+[BLOCK 46]
+0 Pitfall
+
+[BLOCK 47]
+20 Pong
+
+[BLOCK 48]
+10000
+
+[BLOCK 49]
+10000 Riverraid
+
+[BLOCK 50]
+RoadRunner
+
+[BLOCK 51]
+40000
+
+[BLOCK 52]
+20000
+
+[BLOCK 53]
+StarGunner
+
+[BLOCK 54]
+Tennis
+
+[BLOCK 55]
+40000
+
+[BLOCK 56]
+20000
+
+[BLOCK 57]
+Venture
+
+[BLOCK 58]
+VideoPinball
+
+[BLOCK 59]
+150000
+
+[BLOCK 60]
+100000
+
+[BLOCK 61]
+50000
+
+[BLOCK 62]
+100 MontezumaRevenge
+
+[BLOCK 63]
+MsPacman
+
+[BLOCK 64]
+PrivateEye
+
+[BLOCK 65]
+Qbert
+
+[BLOCK 66]
+15000
+
+[BLOCK 67]
+10000
+
+[BLOCK 68]
+Robotank
+
+[BLOCK 69]
+Seaquest
+
+[BLOCK 70]
+SpaceInvaders
+
+[BLOCK 71]
+TimePilot
+
+[BLOCK 72]
+300 Tutankham
+
+[BLOCK 73]
+200000 UpNDown
+
+[BLOCK 74]
+100000
+
+[BLOCK 75]
+WizardOfWor
+
+[BLOCK 76]
+Zaxxon
+
+[BLOCK 77]
+A2C ACER PPO
+
+[BLOCK 78]
+0 40M Frames
+
+[BLOCK 79]
+0 40M Frames
+
+[BLOCK 80]
+0 40M Frames
+
+[BLOCK 81]
+0 40M Frames
+
+[BLOCK 82]
+Figure 6: Comparison of PPO and A2C on all 49 ATARI games included in OpenAI Gym at the time of publication.
+
+===== PDF PAGE 12 | text =====
+
+[BLOCK 1]
+A2C ACER PPO
+
+[BLOCK 2]
+Alien 1141.7 1655.4 1850.3 Amidar 380.8 827.6 674.6 Assault 1562.9 4653.8 4971.9 Asterix 3176.3 6801.2 4532.5 Asteroids 1653.3 2389.3 2097.5 Atlantis 729265.3 1841376.0 2311815.0 BankHeist 1095.3 1177.5 1280.6 BattleZone 3080.0 8983.3 17366.7 BeamRider 3031.7 3863.3 1590.0 Bowling 30.1 33.3 40.1 Boxing 17.7 98.9 94.6 Breakout 303.0 456.4 274.8 Centipede 3496.5 8904.8 4386.4 ChopperCommand 1171.7 5287.7 3516.3 CrazyClimber 107770.0 132461.0 110202.0 DemonAttack 6639.1 38808.3 11378.4 DoubleDunk -16.2 -13.2 -14.9 Enduro 0.0 0.0 758.3 FishingDerby 20.6 34.7 17.8 Freeway 0.0 0.0 32.5 Frostbite 261.8 285.6 314.2 Gopher 1500.9 37802.3 2932.9 Gravitar 194.0 225.3 737.2 IceHockey -6.4 -5.9 -4.2 Jamesbond 52.3 261.8 560.7 Kangaroo 45.3 50.0 9928.7 Krull 8367.4 7268.4 7942.3 KungFuMaster 24900.3 27599.3 23310.3 MontezumaRevenge 0.0 0.3 42.0 MsPacman 1626.9 2718.5 2096.5 NameThisGame 5961.2 8488.0 6254.9 Pitfall -55.0 -16.9 -32.9 Pong 19.7 20.7 20.7 PrivateEye 91.3 182.0 69.5 Qbert 10065.7 15316.6 14293.3 Riverraid 7653.5 9125.1 8393.6 RoadRunner 32810.0 35466.0 25076.0 Robotank 2.2 2.5 5.5 Seaquest 1714.3 1739.5 1204.5 SpaceInvaders 744.5 1213.9 942.5 StarGunner 26204.0 49817.7 32689.0 Tennis -22.2 -17.6 -14.8 TimePilot 2898.0 4175.7 4342.0 Tutankham 206.8 280.8 254.4 UpNDown 17369.8 145051.4 95445.0 Venture 0.0 0.0 0.0 VideoPinball 19735.9 156225.6 37389.0 WizardOfWor 859.0 2308.3 4185.3 Zaxxon 16.3 29.0 5008.7
+
+[BLOCK 3]
+Table 6: Mean final scores (last 100 episodes) of PPO and A2C on Atari games after 40M game frames (10M timesteps).
+
+===== INDEXED SENTENCES =====
+
+[P12-S00001] PDF pages [1]
+We propose a new family of policy gradient methods for reinforcement learning, which alternate between sampling data through interaction with the environment, and optimizing a “surrogate” objective function using stochastic gradient ascent.
+
+[P12-S00002] PDF pages [1]
+Whereas standard policy gradient methods perform one gradient update per data sample, we propose a novel objective function that enables multiple epochs of minibatch updates.
+
+[P12-S00003] PDF pages [1]
+The new methods, which we call proximal policy optimization (PPO), have some of the benefits of trust region policy optimization (TRPO), but they are much simpler to implement, more general, and have better sample complexity (empirically).
+
+[P12-S00004] PDF pages [1]
+Our experiments test PPO on a collection of benchmark tasks, including simulated robotic locomotion and Atari game playing, and we show that PPO outperforms other online policy gradient methods, and overall strikes a favorable balance between sample complexity, simplicity, and wall-time.
+
+[P12-S00005] PDF pages [1]
+In recent years, several different approaches have been proposed for reinforcement learning with neural network function approximators.
+
+[P12-S00006] PDF pages [1]
+The leading contenders are deep Q-learning [Mni+15], “vanilla” policy gradient methods [Mni+16], and trust region / natural policy gradient methods [Sch+15b].
+
+[P12-S00007] PDF pages [1]
+However, there is room for improvement in developing a method that is scalable (to large models and parallel implementations), data efficient, and robust (i.e., successful on a variety of problems without hyperparameter tuning).
+
+[P12-S00008] PDF pages [1]
+Q-learning (with function approximation) fails on many simple problems1 and is poorly understood, vanilla policy gradient methods have poor data effiency and robustness; and trust region policy optimization (TRPO) is relatively complicated, and is not compatible with architectures that include noise (such as dropout) or parameter sharing (between the policy and value function, or with auxiliary tasks).
+
+[P12-S00009] PDF pages [1]
+This paper seeks to improve the current state of affairs by introducing an algorithm that attains the data efficiency and reliable performance of TRPO, while using only first-order optimization.
+
+[P12-S00010] PDF pages [1]
+We propose a novel objective with clipped probability ratios, which forms a pessimistic estimate (i.e., lower bound) of the performance of the policy.
+
+[P12-S00011] PDF pages [1]
+To optimize policies, we alternate between sampling data from the policy and performing several epochs of optimization on the sampled data.
+
+[P12-S00012] PDF pages [1]
+Our experiments compare the performance of various different versions of the surrogate objective, and find that the version with the clipped probability ratios performs best.
+
+[P12-S00013] PDF pages [1]
+We also compare PPO to several previous algorithms from the literature.
+
+[P12-S00014] PDF pages [1]
+On continuous control tasks, it performs better than the algorithms we compare against.
+
+[P12-S00015] PDF pages [1]
+On Atari, it performs significantly better (in terms of sample complexity) than A2C and similarly to ACER though it is much simpler.
+
+[P12-S00016] PDF pages [2]
+Policy gradient methods work by computing an estimator of the policy gradient and plugging it into a stochastic gradient ascent algorithm.
+
+[P12-S00017] PDF pages [2]
+While it is appealing to perform multiple steps of optimization on this loss LPG using the same trajectory, doing so is not well-justified, and empirically it often leads to destructively large policy updates (see Section 6.1; results are not shown but were similar or worse than the “no clipping or penalty” setting).
+
+[P12-S00018] PDF pages [2]
+In TRPO [Sch+15b], an objective function (the “surrogate” objective) is maximized subject to a constraint on the size of the policy update.
+
+[P12-S00019] PDF pages [2]
+This problem can efficiently be approximately solved using the conjugate gradient algorithm, after making a linear approximation to the objective and a quadratic approximation to the constraint.
+
+[P12-S00020] PDF pages [2]
+This follows from the fact that a certain surrogate objective (which computes the max KL over states instead of the mean) forms a lower bound (i.e., a pessimistic bound) on the performance of the policy π. TRPO uses a hard constraint rather than a penalty because it is hard to choose a single value of β that performs well across different problems-or even within a single problem, where the the characteristics change over the course of learning.
+
+[P12-S00021] PDF pages [2]
+Hence, to achieve our goal of a first-order algorithm that emulates the monotonic improvement of TRPO, experiments show that it is not sufficient to simply choose a fixed penalty coefficient β and optimize the penalized objective Equation (5) with SGD; additional modifications are required.
+
+[P12-S00022] PDF pages [3]
+The superscript CPI refers to conservative policy iteration [KL02], where this objective was proposed.
+
+[P12-S00023] PDF pages [3]
+Without a constraint, maximization of LCPI would lead to an excessively large policy update; hence, we now consider how to modify the objective, to penalize changes to the policy that move rt(θ) away from 1.
+
+[P12-S00024] PDF pages [3]
+The motivation for this objective is as follows.
+
+[P12-S00025] PDF pages [3]
+The first term inside the min is LCPI.
+
+[P12-S00026] PDF pages [3]
+The second term, clip(rt(θ), 1-ε, 1+ε) ˆAt, modifies the surrogate objective by clipping the probability ratio, which removes the incentive for moving rt outside of the interval [1 -ε, 1 + ε].
+
+[P12-S00027] PDF pages [3]
+Finally, we take the minimum of the clipped and unclipped objective, so the final objective is a lower bound (i.e., a pessimistic bound) on the unclipped objective.
+
+[P12-S00028] PDF pages [3]
+With this scheme, we only ignore the change in probability ratio when it would make the objective improve, and we include it when it makes the objective worse.
+
+[P12-S00029] PDF pages [3]
+Note that LCLIP (θ) = LCPI(θ) to first order around θold (i.e., where r = 1), however, they become different as θ moves away from θold.
+
+[P12-S00030] PDF pages [3]
+The red circle on each plot shows the starting point for the optimization, i.e., r = 1.
+
+[P12-S00031] PDF pages [3]
+Note that LCLIP sums many of these terms.
+
+[P12-S00032] PDF pages [3]
+It shows how several objectives vary as we interpolate along the policy update direction, obtained by proximal policy optimization (the algorithm we will introduce shortly) on a continuous control problem.
+
+[P12-S00033] PDF pages [3]
+We can see that LCLIP is a lower bound on LCPI, with a penalty for having too large of a policy update.
+
+[P12-S00034] PDF pages [4]
+The updated policy has a KL divergence of about 0.02 from the initial policy, and this is the point at which LCLIP is maximal.
+
+[P12-S00035] PDF pages [4]
+This plot corresponds to the first policy update on the Hopper-v1 problem, using hyperparameters provided in Section 6.1.
+
+[P12-S00036] PDF pages [4]
+Another approach, which can be used as an alternative to the clipped surrogate objective, or in addition to it, is to use a penalty on KL divergence, and to adapt the penalty coefficient so that we achieve some target value of the KL divergence dtarg each policy update.
+
+[P12-S00037] PDF pages [4]
+In our experiments, we found that the KL penalty performed worse than the clipped surrogate objective, however, we've included it here because it's an important baseline.
+
+[P12-S00038] PDF pages [4]
+The updated β is used for the next policy update.
+
+[P12-S00039] PDF pages [4]
+With this scheme, we occasionally see policy updates where the KL divergence is significantly different from dtarg, however, these are rare, and β quickly adjusts.
+
+[P12-S00040] PDF pages [4]
+The parameters 1.5 and 2 above are chosen heuristically, but the algorithm is not very sensitive to them.
+
+[P12-S00041] PDF pages [4]
+The initial value of β is a another hyperparameter but is not important in practice because the algorithm quickly adjusts it.
+
+[P12-S00042] PDF pages [4]
+The surrogate losses from the previous sections can be computed and differentiated with a minor change to a typical policy gradient implementation.
+
+[P12-S00043] PDF pages [4]
+For implementations that use automatic differentation, one simply constructs the loss LCLIP or LKLPEN instead of LPG, and one performs multiple steps of stochastic gradient ascent on this objective.
+
+[P12-S00044] PDF pages [4, 5]
+Most techniques for computing variance-reduced advantage-function estimators make use a learned state-value function V (s); for example, generalized advantage estimation [Sch+15a], or the finite-horizon estimators in [Mni+16].
+
+[P12-S00045] PDF pages [5]
+If using a neural network architecture that shares parameters between the policy and value function, we must use a loss function that combines the policy surrogate and a value function error term.
+
+[P12-S00046] PDF pages [5]
+This objective can further be augmented by adding an entropy bonus to ensure sufficient exploration, as suggested in past work [Wil92; Mni+16].
+
+[P12-S00047] PDF pages [5]
+One style of policy gradient implementation, popularized in [Mni+16] and well-suited for use with recurrent neural networks, runs the policy for T timesteps (where T is much less than the episode length), and uses the collected samples for an update.
+
+[P12-S00048] PDF pages [5]
+This style requires an advantage estimator that does not look beyond timestep T. The estimator used by [Mni+16] is ˆAt = -V (st) + rt + γrt+1 + · · · + γT-t+1rT-1 + γT-tV (sT ) (10) where t specifies the time index in [0, T], within a given length-T trajectory segment.
+
+[P12-S00049] PDF pages [5]
+Generalizing this choice, we can use a truncated version of generalized advantage estimation, which reduces to Equation (10) when λ = 1: ˆAt = δt + (γλ)δt+1 + · · · + · · · + (γλ)T-t+1δT-1, (11) where δt = rt + γV (st+1) -V (st) (12) A proximal policy optimization (PPO) algorithm that uses fixed-length trajectory segments is shown below.
+
+[P12-S00050] PDF pages [5]
+Each iteration, each of N (parallel) actors collect T timesteps of data.
+
+[P12-S00051] PDF pages [5]
+Then we construct the surrogate loss on these NT timesteps of data, and optimize it with minibatch SGD (or usually for better performance, Adam [KB14]), for K epochs.
+
+[P12-S00052] PDF pages [5]
+Run policy πθold in environment for T timesteps Compute advantage estimates ˆA1, .
+
+[P12-S00053] PDF pages [5]
+First, we compare several different surrogate objectives under different hyperparameters.
+
+[P12-S00054] PDF pages [5]
+Here, we compare the surrogate objective LCLIP to several natural variations and ablated versions.
+
+[P12-S00055] PDF pages [6]
+For the KL penalty, one can either use a fixed penalty coefficient β or an adaptive coefficient as described in Section 4 using target KL value dtarg.
+
+[P12-S00056] PDF pages [6]
+Note that we also tried clipping in log space, but found the performance to be no better.
+
+[P12-S00057] PDF pages [6]
+Because we are searching over hyperparameters for each algorithm variant, we chose a computationally cheap benchmark to test the algorithms on.
+
+[P12-S00058] PDF pages [6]
+Namely, we used 7 simulated robotics tasks2 implemented in OpenAI Gym [Bro+16], which use the MuJoCo [TET12] physics engine.
+
+[P12-S00059] PDF pages [6]
+We do one million timesteps of training on each one.
+
+[P12-S00060] PDF pages [6]
+Besides the hyperparameters used for clipping (ε) and the KL penalty (β, dtarg), which we search over, the other hyperparameters are provided in in Table 3.
+
+[P12-S00061] PDF pages [6]
+To represent the policy, we used a fully-connected MLP with two hidden layers of 64 units, and tanh nonlinearities, outputting the mean of a Gaussian distribution, with variable standard deviations, following [Sch+15b; Dua+16].
+
+[P12-S00062] PDF pages [6]
+We don't share parameters between the policy and value function (so coefficient c1 is irrelevant), and we don't use an entropy bonus.
+
+[P12-S00063] PDF pages [6]
+Each algorithm was run on all 7 environments, with 3 random seeds on each.
+
+[P12-S00064] PDF pages [6]
+We scored each run of the algorithm by computing the average total reward of the last 100 episodes.
+
+[P12-S00065] PDF pages [6]
+We shifted and scaled the scores for each environment so that the random policy gave a score of 0 and the best result was set to 1, and averaged over 21 runs to produce a single scalar for each algorithm setting.
+
+[P12-S00066] PDF pages [6]
+The results are shown in Table 1.
+
+[P12-S00067] PDF pages [6]
+Note that the score is negative for the setting without clipping or penalties, because for one environment (half cheetah) it leads to a very negative score, which is worse than the initial random policy.
+
+[P12-S00068] PDF pages [6]
+Average normalized scores (over 21 runs of the algorithm, on 7 environments) for each algorithm / hyperparameter setting .
+
+[P12-S00069] PDF pages [6]
+Next, we compare PPO (with the “clipped” surrogate objective from Section 3) to several other methods from the literature, which are considered to be effective for continuous problems.
+
+[P12-S00070] PDF pages [6]
+We compared against tuned implementations of the following algorithms: trust region policy optimization [Sch+15b], cross-entropy method (CEM) [SL06], vanilla policy gradient with adaptive stepsize3, 2HalfCheetah, Hopper, InvertedDoublePendulum, InvertedPendulum, Reacher, Swimmer, and Walker2d, all “-v1” 3After each batch of data, the Adam stepsize is adjusted based on the KL divergence of the original and updated policy, using a rule similar to the one shown in Section 4.
+
+[P12-S00071] PDF pages [7]
+A2C stands for advantage actor critic, and is a synchronous version of A3C, which we found to have the same or better performance than the asynchronous version.
+
+[P12-S00072] PDF pages [7]
+For PPO, we used the hyperparameters from the previous section, with ε = 0.2.
+
+[P12-S00073] PDF pages [7]
+We see that PPO outperforms the previous methods on almost all the continuous control environments.
+
+[P12-S00074] PDF pages [7]
+To showcase the performance of PPO on high-dimensional continuous control problems, we train on a set of problems involving a 3D humanoid, where the robot must run, steer, and get up offthe ground, possibly while being pelted by cubes.
+
+[P12-S00075] PDF pages [7]
+The three tasks we test on are (1) RoboschoolHumanoid: forward locomotion only, (2) RoboschoolHumanoidFlagrun: position of target is randomly varied every 200 timesteps or whenever the goal is reached, (3) RoboschoolHumanoid- FlagrunHarder, where the robot is pelted by cubes and needs to get up offthe ground.
+
+[P12-S00076] PDF pages [7]
+See Figure 5 for still frames of a learned policy, and Figure 4 for learning curves on the three tasks.
+
+[P12-S00077] PDF pages [7]
+In concurrent work, Heess et al. [Hee+17] used the adaptive KL variant of PPO (Section 4) to learn locomotion policies for 3D robots.
+
+[P12-S00078] PDF pages [8]
+In the first six frames, the robot runs towards a target.
+
+[P12-S00079] PDF pages [8]
+Then the position is randomly changed, and the robot turns and runs toward the new target.
+
+[P12-S00080] PDF pages [8]
+We also ran PPO on the Arcade Learning Environment [Bel+15] benchmark and compared against well-tuned implementations of A2C [Mni+16] and ACER [Wan+16].
+
+[P12-S00081] PDF pages [8]
+For all three algorithms, we used the same policy network architechture as used in [Mni+16].
+
+[P12-S00082] PDF pages [8]
+The hyperparameters for PPO are provided in Table 5.
+
+[P12-S00083] PDF pages [8]
+For the other two algorithms, we used hyperparameters that were tuned to maximize performance on this benchmark.
+
+[P12-S00084] PDF pages [8]
+A table of results and learning curves for all 49 games is provided in Appendix B.
+
+[P12-S00085] PDF pages [8]
+We consider the following two scoring metrics: (1) average reward per episode over entire training period (which favors fast learning), and (2) average reward per episode over last 100 episodes of training (which favors final performance).
+
+[P12-S00086] PDF pages [8]
+We have introduced proximal policy optimization, a family of policy optimization methods that use multiple epochs of stochastic gradient ascent to perform each policy update.
+
+[P12-S00087] PDF pages [8]
+These methods have the stability and reliability of trust-region methods but are much simpler to implement, requiring only few lines of code change to a vanilla policy gradient implementation, applicable in more general settings (for example, when using a joint architecture for the policy and value function), and have better overall performance.
+
+[P12-S00088] PDF pages [8]
+Thanks to Rocky Duan, Peter Chen, and others at OpenAI for insightful comments.
+
+[P12-S00089] PDF pages [9]
+[Bel+15] M. Bellemare, Y. Naddaf, J. Veness, and M. Bowling.
+
+[P12-S00090] PDF pages [9]
+In: Twenty-Fourth International Joint Conference on Artificial Intelligence.
+
+[P12-S00091] PDF pages [9]
+[Bro+16] G. Brockman, V. Cheung, L. Pettersson, J. Schneider, J. Schulman, J. Tang, and W. Zaremba.
+
+[P12-S00092] PDF pages [9]
+[Hee+17] N. Heess, S. Sriram, J. Lemmon, J. Merel, G. Wayne, Y. Tassa, T. Erez, Z. Wang, A. Eslami, M. Riedmiller, et al. “Emergence of Locomotion Behaviours in Rich Environments”.
+
+[P12-S00093] PDF pages [9]
+A. Rusu, J. Veness, M. G. Bellemare, A. Graves, M. Riedmiller, A. K. Fidjeland, G. Ostrovski, et al. “Human-level control through deep reinforcement learning”.
+
+[P12-S00094] PDF pages [9]
+[Sch+15a] J. Schulman, P. Moritz, S. Levine, M. Jordan, and P. Abbeel.
+
+[P12-S00095] PDF pages [9]
+In: Intelligent Robots and Systems (IROS), 2012 IEEE/RSJ International Conference on.
+
+[P12-S00096] PDF pages [10]
+Hyperparameter Value Horizon (T) 512 Adam stepsize ∗ Num.
+
+[P12-S00097] PDF pages [10]
+Adam stepsize was adjusted based on the target value of the KL divergence.
+
+[P12-S00098] PDF pages [10]
+Here we include a comparison of PPO against A2C on a larger collection of 49 Atari games.
+
+[P12-P009-B011] PDF pages [9]
+[Sch+15b] J. Schulman, S. Levine, P. Moritz, M. I. Jordan, and P. Abbeel. “Trust region policy optimization”. In: CoRR, abs/1502.05477 (2015).

@@ -1,0 +1,2913 @@
+Flow Matching for Generative Modeling
+PDF: 05_Generative_Models/35_2022_Flow_Matching.pdf
+
+===== PDF PAGE 1 | text =====
+
+[BLOCK 1]
+FLOW MATCHING FOR GENERATIVE MODELING
+
+[BLOCK 2]
+Yaron Lipman1,2 Ricky T. Q. Chen1 Heli Ben-Hamu2 Maximilian Nickel1 Matt Le1
+
+[BLOCK 3]
+1Meta AI (FAIR) 2Weizmann Institute of Science
+
+[BLOCK 4]
+ABSTRACT
+
+[BLOCK 5]
+We introduce a new paradigm for generative modeling built on Continuous Normalizing Flows (CNFs), allowing us to train CNFs at unprecedented scale. Specifically, we present the notion of Flow Matching (FM), a simulation-free approach for training CNFs based on regressing vector fields of fixed conditional probability paths. Flow Matching is compatible with a general family of Gaussian probability paths for transforming between noise and data samples-which subsumes existing diffusion paths as specific instances. Interestingly, we find that employing FM with diffusion paths results in a more robust and stable alternative for training diffusion models. Furthermore, Flow Matching opens the door to training CNFs with other, non-diffusion probability paths. An instance of particular interest is using Optimal Transport (OT) displacement interpolation to define the conditional probability paths. These paths are more efficient than diffusion paths, provide faster training and sampling, and result in better generalization. Training CNFs using Flow Matching on ImageNet leads to consistently better performance than alternative diffusion-based methods in terms of both likelihood and sample quality, and allows fast and reliable sample generation using off-the-shelf numerical ODE solvers.
+
+[BLOCK 6]
+1 INTRODUCTION
+
+[BLOCK 7]
+Deep generative models are a class of deep learning algorithms aimed at estimating and sampling from an unknown data distribution. The recent influx of amazing advances in generative modeling, e.g., for image generation Ramesh et al. (2022); Rombach et al. (2022), is mostly facilitated by the scalable and relatively stable training of diffusion-based models Ho et al. (2020); Song et al. (2020b). However, the restriction to simple diffusion processes leads to a rather confined space of sampling probability paths, resulting in very long training times and the need to adopt specialized methods (e.g., Song et al. (2020a); Zhang & Chen (2022)) for efficient sampling.
+
+[BLOCK 8]
+In this work we consider the general and deterministic framework of Continuous Normalizing Flows (CNFs; Chen et al. (2018)). CNFs are capable of modeling arbitrary probability path
+
+[BLOCK 9]
+and are in particular known to encompass the probability paths modeled by diffusion processes (Song et al., 2021). However, aside from diffusion that can be trained efficiently via, e.g., denoising score matching (Vincent, 2011), no scalable CNF training algorithms are known. Indeed, maximum likelihood training (e.g., Grathwohl et al. (2018)) re-quire expensive numerical ODE simulations, while existing simulation-free methods either involve in-tractable integrals (Rozen et al., 2021) or biased gradients (Ben-Hamu et al., 2022).
+
+[BLOCK 10]
+The goal of this work is to propose Flow Matching (FM), an efficient simulation-free approach to training CNF models, allowing the adoption of general probability paths to supervise CNF training. Importantly, FM breaks the barriers for scalable CNF training beyond diffusion, and sidesteps the need to reason about diffusion processes to directly work with probability paths.
+
+[BLOCK 11]
+Figure 1: Unconditional ImageNet-128 samples of a CNF trained using Flow Matching with Optimal Transport probability paths.
+
+===== PDF PAGE 2 | text =====
+
+[BLOCK 1]
+In particular, we propose the Flow Matching objective (Section 3), a simple and intuitive training objective to regress onto a target vector field that generates a desired probability path. We first show that we can construct such target vector fields through per-example (i.e., conditional) formulations. Then, inspired by denoising score matching, we show that a per-example training objective, termed Conditional Flow Matching (CFM), provides equivalent gradients and does not require explicit knowledge of the intractable target vector field. Furthermore, we discuss a general family of per-example probability paths (Section 4) that can be used for Flow Matching, which subsumes existing diffusion paths as special instances. Even on diffusion paths, we find that using FM provides more robust and stable training, and achieves superior performance compared to score matching. Furthermore, this family of probability paths also includes a particularly interesting case: the vector field that corresponds to an Optimal Transport (OT) displacement interpolant (McCann, 1997). We find that conditional OT paths are simpler than diffusion paths, forming straight line trajectories whereas diffusion paths result in curved paths. These properties seem to empirically translate to faster training, faster generation, and better performance.
+
+[BLOCK 2]
+We empirically validate Flow Matching and the construction via Optimal Transport paths on ImageNet, a large and highly diverse image dataset. We find that we can easily train models to achieve favorable performance in both likelihood estimation and sample quality amongst competing diffusion-based methods. Furthermore, we find that our models produce better trade-offs between computational cost and sample quality compared to prior methods. Figure 1 depicts selected unconditional ImageNet 128×128 samples from our model.
+
+[BLOCK 3]
+2 PRELIMINARIES: CONTINUOUS NORMALIZING FLOWS
+
+[BLOCK 4]
+Let Rd denote the data space with data points x = (x1, . . . , xd) ∈Rd. Two important objects we use in this paper are: the probability density path p : [0, 1] × Rd →R>0, which is a time dependent1 probability density function, i.e.,
+
+[BLOCK 5]
+R
+
+[BLOCK 6]
+pt(x)dx = 1, and a time-dependent vector field, v : [0, 1] × Rd →Rd. A vector field vt can be used to construct a time-dependent diffeomorphic map, called a flow, φ : [0, 1] × Rd →Rd, defined via the ordinary differential equation (ODE):
+
+[BLOCK 7]
+d dtφt(x) = vt(φt(x)) (1)
+
+[BLOCK 8]
+φ0(x) = x (2)
+
+[BLOCK 9]
+Previously, Chen et al. (2018) suggested modeling the vector field vt with a neural network, vt(x; θ), where θ ∈Rp are its learnable parameters, which in turn leads to a deep parametric model of the flow φt, called a Continuous Normalizing Flow (CNF). A CNF is used to reshape a simple prior density p0 (e.g., pure noise) to a more complicated one, p1, via the push-forward equation
+
+[BLOCK 10]
+pt = [φt]∗p0 (3)
+
+[BLOCK 11]
+where the push-forward (or change of variables) operator ∗is defined by
+
+[BLOCK 12]
+[φt]∗p0(x) = p0(φ-1
+
+[BLOCK 13]
+∂φ-1
+
+[BLOCK 14]
+t ∂x (x)
+
+[BLOCK 15]
+t (x)) det
+
+[BLOCK 16]
+. (4)
+
+[BLOCK 17]
+A vector field vt is said to generate a probability density path pt if its flow φt satisfies equation 3. One practical way to test if a vector field generates a probability path is using the continuity equation, which is a key component in our proofs, see Appendix B. We recap more information on CNFs, in particular how to compute the probability p1(x) at an arbitrary point x ∈Rd in Appendix C.
+
+[BLOCK 18]
+3 FLOW MATCHING
+
+[BLOCK 19]
+Let x1 denote a random variable distributed according to some unknown data distribution q(x1). We assume we only have access to data samples from q(x1) but have no access to the density function itself. Furthermore, we let pt be a probability path such that p0 = p is a simple distribution, e.g., the standard normal distribution p(x) = N(x|0, I), and let p1 be approximately equal in distribution to q. We will later discuss how to construct such a path. The Flow Matching objective is then designed to match this target probability path, which will allow us to flow from p0 to p1.
+
+[BLOCK 20]
+1We use subscript to denote the time parameter, e.g., pt(x).
+
+===== PDF PAGE 3 | text =====
+
+[BLOCK 1]
+Given a target probability density path pt(x) and a corresponding vector field ut(x), which generates pt(x), we define the Flow Matching (FM) objective as
+
+[BLOCK 2]
+LFM(θ) = Et,pt(x)∥vt(x) -ut(x)∥2, (5)
+
+[BLOCK 3]
+where θ denotes the learnable parameters of the CNF vector field vt (as defined in Section 2), t ∼ U[0, 1] (uniform distribution), and x ∼pt(x). Simply put, the FM loss regresses the vector field ut with a neural network vt. Upon reaching zero loss, the learned CNF model will generate pt(x).
+
+[BLOCK 4]
+Flow Matching is a simple and attractive objective, but na ̈ıvely on its own, it is intractable to use in practice since we have no prior knowledge for what an appropriate pt and ut are. There are many choices of probability paths that can satisfy p1(x) ≈q(x), and more importantly, we generally don't have access to a closed form ut that generates the desired pt. In this section, we show that we can construct both pt and ut using probability paths and vector fields that are only defined per sample, and an appropriate method of aggregation provides the desired pt and ut. Furthermore, this construction allows us to create a much more tractable objective for Flow Matching.
+
+[BLOCK 5]
+3.1 CONSTRUCTING pt, ut FROM CONDITIONAL PROBABILITY PATHS AND VECTOR FIELDS
+
+[BLOCK 6]
+A simple way to construct a target probability path is via a mixture of simpler probability paths: Given a particular data sample x1 we denote by pt(x|x1) a conditional probability path such that it satisfies p0(x|x1) = p(x) at time t = 0, and we design p1(x|x1) at t = 1 to be a distribution concentrated around x = x1, e.g., p1(x|x1) = N(x|x1, σ2I), a normal distribution with x1 mean and a sufficiently small standard deviation σ > 0. Marginalizing the conditional probability paths over q(x1) give rise to the marginal probability path
+
+[BLOCK 7]
+Z
+
+[BLOCK 8]
+pt(x|x1)q(x1)dx1, (6)
+
+[BLOCK 9]
+pt(x) =
+
+[BLOCK 10]
+where in particular at time t = 1, the marginal probability p1 is a mixture distribution that closely approximates the data distribution q,
+
+[BLOCK 11]
+Z
+
+[BLOCK 12]
+p1(x|x1)q(x1)dx1 ≈q(x). (7)
+
+[BLOCK 13]
+p1(x) =
+
+[BLOCK 14]
+Interestingly, we can also define a marginal vector field, by “marginalizing” over the conditional vector fields in the following sense (we assume pt(x) > 0 for all t and x):
+
+[BLOCK 15]
+ut(x|x1)pt(x|x1)q(x1)
+
+[BLOCK 16]
+Z
+
+[BLOCK 17]
+ut(x) =
+
+[BLOCK 18]
+pt(x) dx1, (8)
+
+[BLOCK 19]
+where ut(·|x1) : Rd →Rd is a conditional vector field that generates pt(·|x1). It may not seem apparent, but this way of aggregating the conditional vector fields actually results in the correct vector field for modeling the marginal probability path.
+
+[BLOCK 20]
+Our first key observation is this:
+
+[BLOCK 21]
+The marginal vector field (equation 8) generates the marginal probability path (equation 6).
+
+[BLOCK 22]
+This provides a surprising connection between the conditional VFs (those that generate conditional probability paths) and the marginal VF (those that generate the marginal probability path). This connection allows us to break down the unknown and intractable marginal VF into simpler conditional VFs, which are much simpler to define as these only depend on a single data sample. We formalize this in the following theorem.
+
+[BLOCK 23]
+Theorem 1. Given vector fields ut(x|x1) that generate conditional probability paths pt(x|x1), for any distribution q(x1), the marginal vector field ut in equation 8 generates the marginal probability path pt in equation 6, i.e., ut and pt satisfy the continuity equation (equation 26).
+
+[BLOCK 24]
+The full proofs for our theorems are all provided in Appendix A. Theorem 1 can also be derived from the Diffusion Mixture Representation Theorem in Peluchetti (2021) that provides a formula for the marginal drift and diffusion coefficients in diffusion SDEs.
+
+===== PDF PAGE 4 | text =====
+
+[BLOCK 1]
+3.2 CONDITIONAL FLOW MATCHING
+
+[BLOCK 2]
+Unfortunately, due to the intractable integrals in the definitions of the marginal probability path and VF (equations 6 and 8), it is still intractable to compute ut, and consequently, intractable to na ̈ıvely compute an unbiased estimator of the original Flow Matching objective. Instead, we propose a simpler objective, which surprisingly will result in the same optima as the original objective. Specifically, we consider the Conditional Flow Matching (CFM) objective,
+
+[BLOCK 3]
+LCFM(θ) = Et,q(x1),pt(x|x1)
+
+[BLOCK 4]
+2, (9)
+
+[BLOCK 5]
+vt(x) -ut(x|x1)
+
+[BLOCK 6]
+where t ∼U[0, 1], x1 ∼q(x1), and now x ∼pt(x|x1). Unlike the FM objective, the CFM objective allows us to easily sample unbiased estimates as long as we can efficiently sample from pt(x|x1) and compute ut(x|x1), both of which can be easily done as they are defined on a per-sample basis. Our second key observation is therefore:
+
+[BLOCK 7]
+The FM (equation 5) and CFM (equation 9) objectives have identical gradients w.r.t. θ.
+
+[BLOCK 8]
+That is, optimizing the CFM objective is equivalent (in expectation) to optimizing the FM objective. Consequently, this allows us to train a CNF to generate the marginal probability path pt-which in particular, approximates the unknown data distribution q at t=1- without ever needing access to either the marginal probability path or the marginal vector field. We simply need to design suitable conditional probability paths and vector fields. We formalize this property in the following theorem.
+
+[BLOCK 9]
+Theorem 2. Assuming that pt(x) > 0 for all x ∈Rd and t ∈[0, 1], then, up to a constant independent of θ, LCFM and LFM are equal. Hence, ∇θLFM(θ) = ∇θLCFM(θ).
+
+[BLOCK 10]
+4 CONDITIONAL PROBABILITY PATHS AND VECTOR FIELDS
+
+[BLOCK 11]
+The Conditional Flow Matching objective works with any choice of conditional probability path and conditional vector fields. In this section, we discuss the construction of pt(x|x1) and ut(x|x1) for a general family of Gaussian conditional probability paths. Namely, we consider conditional probability paths of the form
+
+[BLOCK 12]
+pt(x|x1) = N(x | μt(x1), σt(x1)2I), (10) where μ : [0, 1] × Rd →Rd is the time-dependent mean of the Gaussian distribution, while σ : [0, 1] × R →R>0 describes a time-dependent scalar standard deviation (std). We set μ0(x1) = 0 and σ0(x1) = 1, so that all conditional probability paths converge to the same standard Gaussian noise distribution at t = 0, p(x) = N(x|0, I). We then set μ1(x1) = x1 and σ1(x1) = σmin, which is set sufficiently small so that p1(x|x1) is a concentrated Gaussian distribution centered at x1.
+
+[BLOCK 13]
+There is an infinite number of vector fields that generate any particular probability path (e.g., by adding a divergence free component to the continuity equation, see equation 26), but the vast majority of these is due to the presence of components that leave the underlying distribution invariant-for instance, rotational components when the distribution is rotation-invariant-leading to unnecessary extra compute. We decide to use the simplest vector field corresponding to a canonical transformation for Gaussian distributions. Specifically, consider the flow (conditioned on x1)
+
+[BLOCK 14]
+ψt(x) = σt(x1)x + μt(x1). (11) When x is distributed as a standard Gaussian, ψt(x) is the affine transformation that maps to a normally-distributed random variable with mean μt(x1) and std σt(x1). That is to say, according to equation 4, ψt pushes the noise distribution p0(x|x1) = p(x) to pt(x|x1), i.e.,
+
+[BLOCK 15]
+[ψt]∗p(x) = pt(x|x1). (12) This flow then provides a vector field that generates the conditional probability path:
+
+[BLOCK 16]
+d dtψt(x) = ut(ψt(x)|x1). (13)
+
+[BLOCK 17]
+Reparameterizing pt(x|x1) in terms of just x0 and plugging equation 13 in the CFM loss we get
+
+[BLOCK 18]
+LCFM(θ) = Et,q(x1),p(x0)
+
+[BLOCK 19]
+2 . (14)
+
+[BLOCK 20]
+vt(ψt(x0)) -d
+
+[BLOCK 21]
+dtψt(x0)
+
+[BLOCK 22]
+Since ψt is a simple (invertible) affine map we can use equation 13 to solve for ut in a closed form. Let f ′ denote the derivative with respect to time, i.e., f ′ = d
+
+[BLOCK 23]
+dtf, for a time-dependent function f.
+
+===== PDF PAGE 5 | text =====
+
+[BLOCK 1]
+Theorem 3. Let pt(x|x1) be a Gaussian probability path as in equation 10, and ψt its corresponding flow map as in equation 11. Then, the unique vector field that defines ψt has the form:
+
+[BLOCK 2]
+ut(x|x1) = σ′
+
+[BLOCK 3]
+t(x1) σt(x1) (x -μt(x1)) + μ′
+
+[BLOCK 4]
+t(x1). (15)
+
+[BLOCK 5]
+Consequently, ut(x|x1) generates the Gaussian path pt(x|x1).
+
+[BLOCK 6]
+4.1 SPECIAL INSTANCES OF GAUSSIAN CONDITIONAL PROBABILITY PATHS
+
+[BLOCK 7]
+Our formulation is fully general for arbitrary functions μt(x1) and σt(x1), and we can set them to any differentiable function satisfying the desired boundary conditions. We first discuss the special cases that recover probability paths corresponding to previously-used diffusion processes. Since we directly work with probability paths, we can simply depart from reasoning about diffusion processes altogether. Therefore, in the second example below, we directly formulate a probability path based on the Wasserstein-2 optimal transport solution as an interesting instance.
+
+[BLOCK 8]
+Example I: Diffusion conditional VFs. Diffusion models start with data points and gradually add noise until it approximates pure noise. These can be formulated as stochastic processes, which have strict requirements in order to obtain closed form representation at arbitrary times t, resulting in Gaussian conditional probability paths pt(x|x1) with specific choices of mean μt(x1) and std σt(x1) (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song et al., 2020b). For example, the reversed (noise→data) Variance Exploding (VE) path has the form
+
+[BLOCK 9]
+pt(x) = N(x|x1, σ2
+
+[BLOCK 10]
+1-tI), (16)
+
+[BLOCK 11]
+where σt is an increasing function, σ0 = 0, and σ1 ≫1. Next, equation 16 provides the choices of μt(x1) = x1 and σt(x1) = σ1-t. Plugging these into equation 15 of Theorem 3 we get
+
+[BLOCK 12]
+ut(x|x1) = -σ′
+
+[BLOCK 13]
+1-t σ1-t
+
+[BLOCK 14]
+(x -x1). (17)
+
+[BLOCK 15]
+The reversed (noise→data) Variance Preserving (VP) diffusion path has the form
+
+[BLOCK 16]
+2 T (t), T(t) = Z t
+
+[BLOCK 17]
+I), where αt = e-1
+
+[BLOCK 18]
+1 -α2 1-t
+
+[BLOCK 19]
+pt(x|x1) = N(x | α1-tx1,
+
+[BLOCK 20]
+0 β(s)ds, (18)
+
+[BLOCK 21]
+and β is the noise scale function. Equation 18 provides the choices of μt(x1) = α1-tx1 and
+
+[BLOCK 22]
+q
+
+[BLOCK 23]
+1 -α2 1-t. Plugging these into equation 15 of Theorem 3 we get
+
+[BLOCK 24]
+σt(x1) =
+
+[BLOCK 25]
+ut(x|x1) = α′
+
+[BLOCK 26]
+"
+
+[BLOCK 27]
+#
+
+[BLOCK 28]
+e-T (1-t)x -e-1
+
+[BLOCK 29]
+2 T (1-t)x1 1 -e-T (1-t)
+
+[BLOCK 30]
+1-t 1 -α2 1-t (α1-tx -x1) = -T ′(1 -t)
+
+[BLOCK 31]
+. (19)
+
+[BLOCK 32]
+Our construction of the conditional VF ut(x|x1) does in fact coincide with the vector field previously used in the deterministic probability flow (Song et al. (2020b), equation 13) when restricted to these conditional diffusion processes; see details in Appendix D. Nevertheless, combining the diffusion conditional VF with the Flow Matching objective offers an attractive training alternative-which we find to be more stable and robust in our experiments-to existing score matching approaches.
+
+[BLOCK 33]
+Another important observation is that, as these probability paths were previously derived as solutions of diffusion processes, they do not actually reach a true noise distribution in finite time. In practice, p0(x) is simply approximated by a suitable Gaussian distribution for sampling and likelihood evaluation. Instead, our construction provides full control over the probability path, and we can just directly set μt and σt, as we will do next.
+
+[BLOCK 34]
+Example II: Optimal Transport conditional VFs. An arguably more natural choice for conditional probability paths is to define the mean and the std to simply change linearly in time, i.e.,
+
+[BLOCK 35]
+μt(x) = tx1, and σt(x) = 1 -(1 -σmin)t. (20)
+
+[BLOCK 36]
+According to Theorem 3 this path is generated by the VF
+
+[BLOCK 37]
+ut(x|x1) = x1 -(1 -σmin)x
+
+[BLOCK 38]
+1 -(1 -σmin)t , (21)
+
+===== PDF PAGE 6 | text =====
+
+[BLOCK 1]
+t = 0.0 t = 1/3 t = 2/3 t = 1.0 Diffusion path - conditional score function
+
+[BLOCK 2]
+t = 0.0 t = 1/3 t = 2/3 t = 1.0 OT path - conditional vector field
+
+[BLOCK 3]
+Figure 2: Compared to the diffusion path's conditional score function, the OT path's conditional vector field has constant direction in time and is arguably simpler to fit with a parametric model. Note the blue color denotes larger magnitude while red color denotes smaller magnitude.
+
+[BLOCK 4]
+which, in contrast to the diffusion conditional VF (equation 19), is defined for all t ∈[0, 1]. The conditional flow that corresponds to ut(x|x1) is
+
+[BLOCK 5]
+ψt(x) = (1 -(1 -σmin)t)x + tx1, (22)
+
+[BLOCK 6]
+and in this case, the CFM loss (see equations 9, 14) takes the form:
+
+[BLOCK 7]
+2 . (23)
+
+[BLOCK 8]
+vt(ψt(x0)) -
+
+[BLOCK 9]
+LCFM(θ) = Et,q(x1),p(x0)
+
+[BLOCK 10]
+x1 -(1 -σmin)x0
+
+[BLOCK 11]
+Allowing the mean and std to change linearly not only leads to simple and intuitive paths, but it is actually also optimal in the following sense. The conditional flow ψt(x) is in fact the Optimal Transport (OT) displacement map between the two Gaussians p0(x|x1) and p1(x|x1). The OT interpolant, which is a probability path, is defined to be (see Definition 1.1 in McCann (1997)):
+
+[BLOCK 12]
+pt = [(1 -t)id + tψ]⋆p0 (24)
+
+[BLOCK 13]
+where ψ : Rd →Rd is the OT map pushing p0 to p1, id denotes the identity map, i.e., id(x) = x, and (1 -t)id + tψ is called the OT displacement map. Example 1.7 in McCann (1997) shows, that in our case of two Gaussians where the first is a standard one, the OT displacement map takes the form of equation 22.
+
+[BLOCK 14]
+Intuitively, particles under the OT displacement map always move in straight line trajectories and with constant speed. Figure 3 depicts sampling paths for the diffusion and OT conditional VFs. Interestingly, we find that sampling trajectory from diffusion paths can “overshoot” the final sample, resulting in unnecessary backtracking, whilst the OT paths are guaranteed to stay straight.
+
+[BLOCK 15]
+Diffusion OT
+
+[BLOCK 16]
+Figure 3: Diffusion and OT trajectories.
+
+[BLOCK 17]
+Figure 2 compares the diffusion conditional score function (the re-gression target in a typical diffusion methods), i.e., ∇log pt(x|x1) with pt defined as in equation 18, with the OT conditional VF (equation 21). The start (p0) and end (p1) Gaussians are identical in both examples. An interesting observation is that the OT VF has a constant direction in time, which arguably leads to a simpler regression task. This property can also be verified directly from equation 21 as the VF can be written in the form ut(x|x1) = g(t)h(x|x1). Figure 8 in the Appendix shows a visualization of the Diffusion VF. Lastly, we note that although the conditional flow is optimal, this by no means imply that the marginal VF is an optimal transport solution. Nevertheless, we expect the marginal vector field to remain relatively simple.
+
+[BLOCK 18]
+5 RELATED WORK
+
+[BLOCK 19]
+Continuous Normalizing Flows were introduced in (Chen et al., 2018) as a continuous-time version of Normalizing Flows (see e.g., Kobyzev et al. (2020); Papamakarios et al. (2021) for an overview). Originally, CNFs are trained with the maximum likelihood objective, but this involves expensive ODE simulations for the forward and backward propagation, resulting in high time complexity due to the sequential nature of ODE simulations. Although some works demonstrated the capability of CNF generative models for image synthesis (Grathwohl et al., 2018), scaling up to very high dimensional images is inherently difficult. A number of works attempted to regularize the ODE to be easier to solve, e.g., using augmentation (Dupont et al., 2019), adding regularization terms (Yang & Karniadakis, 2019; Finlay et al., 2020; Onken et al., 2021; Tong et al., 2020; Kelly et al., 2020), or stochastically sampling the integration interval (Du et al., 2022). These works merely aim to regularize the ODE but do not change the fundamental training algorithm.
+
+===== PDF PAGE 7 | text =====
+
+[BLOCK 1]
+Score matching w/ Diffusion
+
+[BLOCK 2]
+Flow Matching w/ Diffusion
+
+[BLOCK 3]
+Flow Matching w/ OT NFE=4 NFE=8 NFE=10 NFE=20
+
+[BLOCK 4]
+Figure 4: (left) Trajectories of CNFs trained with different objectives on 2D checkerboard data. The OT path introduces the checkerboard pattern much earlier, while FM results in more stable training. (right) FM with OT results in more efficient sampling, solved using the midpoint scheme.
+
+[BLOCK 5]
+In order to speed up CNF training, some works have developed simulation-free CNF training frameworks by explicitly designing the target probability path and the dynamics. For instance, Rozen et al. (2021) consider a linear interpolation between the prior and the target density but involves integrals that were difficult to estimate in high dimensions, while Ben-Hamu et al. (2022) consider general probability paths similar to this work but suffers from biased gradients in the stochastic minibatch regime. In contrast, the Flow Matching framework allows simulation-free training with unbiased gradients and readily scales to very high dimensions.
+
+[BLOCK 6]
+Another approach to simulation-free training relies on the construction of a diffusion process to indirectly define the target probability path (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song & Ermon, 2019). Song et al. (2020b) shows that diffusion models are trained using denoising score matching (Vincent, 2011), a conditional objective that provides unbiased gradients with respect to the score matching objective. Conditional Flow Matching draws inspiration from this result, but generalizes to matching vector fields directly. Due to the ease of scalability, diffusion models have received increased attention, producing a variety of improvements such as loss-rescaling (Song et al., 2021), adding classifier guidance along with architectural improvements (Dhariwal & Nichol, 2021), and learning the noise schedule (Nichol & Dhariwal, 2021; Kingma et al., 2021). However, (Nichol & Dhariwal, 2021) and (Kingma et al., 2021) only consider a restricted setting of Gaussian conditional paths defined by simple diffusion processes with a single parameter-in particular, it does not include our conditional OT path. In an another line of works, (De Bortoli et al., 2021; Wang et al., 2021; Peluchetti, 2021) proposed finite time diffusion constructions via diffusion bridges theory resolving the approximation error incurred by infinite time denoising constructions. While existing works make use of a connection between diffusion processes and continuous normalizing flows with the same probability path (Maoutsa et al., 2020b; Song et al., 2020b; 2021), our work allows us to generalize beyond the class of probability paths modeled by simple diffusion. With our work, it is possible to completely sidestep the diffusion process construction and reason directly with probability paths, while still retaining efficient training and log-likelihood evaluations. Lastly, concurrently to our work (Liu et al., 2022; Albergo & Vanden-Eijnden, 2022) arrived at similar conditional objectives for simulation-free training of CNFs, while Neklyudov et al. (2023) derived an implicit objective when ut is assumed to be a gradient field.
+
+[BLOCK 7]
+6 EXPERIMENTS
+
+[BLOCK 8]
+We explore the empirical benefits of using Flow Matching on the image datasets of CIFAR- 10 (Krizhevsky et al., 2009) and ImageNet at resolutions 32, 64, and 128 (Chrabaszcz et al., 2017; Deng et al., 2009). We also ablate the choice of diffusion path in Flow Matching, particularly between the standard variance preserving diffusion path and the optimal transport path. We discuss how sample generation is improved by directly parameterizing the generating vector field and using the Flow Matching objective. Lastly we show Flow Matching can also be used in the conditional generation setting. Unless otherwise specified, we evaluate likelihood and samples from the model using dopri5 (Dormand & Prince, 1980) at absolute and relative tolerances of 1e-5. Generated samples can be found in the Appendix, and all implementation details are in Appendix E.
+
+===== PDF PAGE 8 | text =====
+
+[BLOCK 1]
+CIFAR-10 ImageNet 32×32 ImageNet 64×64
+
+[BLOCK 2]
+ImageNet 128×128
+
+[BLOCK 3]
+Model NLL↓ FID↓ NFE↓ NLL↓ FID↓ NFE↓ NLL↓ FID↓ NFE↓
+
+[BLOCK 4]
+Ablations
+
+[BLOCK 5]
+Model NLL↓ FID↓
+
+[BLOCK 6]
+MGAN (Hoang et al., 2018) - 58.9 PacGAN2 (Lin et al., 2018) - 57.5 Logo-GAN-AE (Sage et al., 2018) - 50.9 Self-cond. GAN (Luˇci ́c et al., 2019) - 41.7 Uncond. BigGAN (Luˇci ́c et al., 2019) - 25.3 PGMGAN (Armandpour et al., 2021) - 21.7
+
+[BLOCK 7]
+DDPM 3.12 7.48 274 3.54 6.99 262 3.32 17.36 264 Score Matching 3.16 19.94 242 3.56 5.68 178 3.40 19.74 441 ScoreFlow 3.09 20.78 428 3.55 14.14 195 3.36 24.95 601
+
+[BLOCK 8]
+Ours
+
+[BLOCK 9]
+FM w/ Diffusion 3.10 8.06 183 3.54 6.37 193 3.33 16.88 187 FM w/ OT 2.99 6.35 142 3.53 5.02 122 3.31 14.45 138
+
+[BLOCK 10]
+FM w/ OT 2.90 20.9
+
+[BLOCK 11]
+Table 1: Likelihood (BPD), quality of generated samples (FID), and evaluation time (NFE) for the same model trained with different methods.
+
+[BLOCK 12]
+Flow Matching w/ Diffusion
+
+[BLOCK 13]
+Score Matching w/ Diffusion
+
+[BLOCK 14]
+Flow Matching w/ OT
+
+[BLOCK 15]
+Figure 6: Sample paths from the same initial noise with models trained on ImageNet 64×64. The OT path reduces noise roughly linearly, while diffusion paths visibly remove noise only towards the end of the path. Note also the differences between the generated images.
+
+[BLOCK 16]
+6.1 DENSITY MODELING AND SAMPLE QUALITY ON IMAGENET
+
+[BLOCK 17]
+We start by comparing the same model architecture, i.e., the U-Net architecture from Dhariwal & Nichol (2021) with minimal changes, trained on CIFAR-10, and ImageNet 32/64 with different popular diffusion-based losses: DDPM from (Ho et al., 2020), Score Matching (SM) (Song et al., 2020b), and Score Flow (SF) (Song et al., 2021); see Appendix E.1 for exact details. Table 1 (left) summarizes our results alongside these baselines reporting negative log-likelihood (NLL) in units of bits per dimension (BPD), sample quality as measured by the Frechet Inception Distance (FID; Heusel et al. (2017)), and averaged number of function evaluations (NFE) required for the adaptive solver to reach its a prespecified numerical tolerance, averaged over 50k samples. All models are trained using the same architecture, hyperparameter values and number of training iterations, where baselines are allowed more iterations for better convergence. Note that these are unconditional models. On both CIFAR-10 and ImageNet, FM-OT consistently obtains best results across all our quantitative measures compared to competing methods. We are noticing a higher that usual FID performance in CIFAR-10 compared to previous works (Ho et al., 2020; Song et al., 2020b; 2021) that can possibly be explained by the fact that our used architecture was not optimized for CIFAR-10.
+
+[BLOCK 18]
+Secondly, Table 1 (right) compares a model trained using Flow Matching with the OT path on ImageNet at resolution 128×128. Our FID is state-of-the-art with the exception of IC-GAN (Casanova et al., 2021) which uses conditioning with a self-supervised ResNet50 model, and therefore is left out of this table. Figures 11, 12, 13 in the Appendix show non-curated samples from these models.
+
+[BLOCK 19]
+Faster training. While existing works train diffusion models with a very high number of iterations (e.g., 1.3m and 10m iterations are reported by Score Flow and VDM, respectively), we find that Flow Matching generally converges much faster. Figure 5 shows FID curves during training of Flow Matching and all baselines for ImageNet 64×64; FM-OT is able to lower the FID faster and to a greater extent than the alternatives. For ImageNet-128 Dhariwal & Nichol (2021) train for 4.36m iterations with batch size 256, while FM (with 25% larger model) used 500k iterations with batch size 1.5k, i.e., 33% less image throughput; see Table 3 for exact details. Furthermore, the cost of sampling from a model can drastically change during training for score matching, whereas the sampling cost stays constant when training with Flow Matching (Figure 10 in Appendix).
+
+[BLOCK 20]
+6.2 SAMPLING EFFICIENCY
+
+[BLOCK 21]
+Figure 5: Image quality during training, ImageNet 64×64.
+
+[BLOCK 22]
+For sampling, we first draw a random noise sample x0 ∼N(0, I) then compute φ1(x0) by solving equation 1 with the trained VF, vt, on the interval t ∈[0, 1] using an ODE solver. While diffusion
+
+===== PDF PAGE 9 | text =====
+
+[BLOCK 1]
+10 1
+
+[BLOCK 2]
+SM-Dif FM-Dif FM-OT
+
+[BLOCK 3]
+Euler Midpoint RK4
+
+[BLOCK 4]
+10 2
+
+[BLOCK 5]
+20 40 60 80 100 NFE
+
+[BLOCK 6]
+0 20 40 60 80 100 NFE
+
+[BLOCK 7]
+Euler Midpoint RK4
+
+[BLOCK 8]
+Euler Midpoint RK4
+
+[BLOCK 9]
+0 20 40 60 80 100 NFE
+
+[BLOCK 10]
+0 20 40 60 80 100 NFE
+
+[BLOCK 11]
+Error of ODE solution Flow matching w/ OT Flow matching w/ Diffusion Score matching w/ Diffusion
+
+[BLOCK 12]
+Figure 7: Flow Matching, especially when using OT paths, allows us to use fewer evaluations for sampling while retaining similar numerical error (left) and sample quality (right). Results are shown for models trained on ImageNet 32×32, and numerical errors are for the midpoint scheme.
+
+[BLOCK 13]
+models can also be sampled through an SDE formulation, this can be highly inefficient and many methods that propose fast samplers (e.g., Song et al. (2020a); Zhang & Chen (2022)) directly make use of the ODE perspective (see Appendix D). In part, this is due to ODE solvers being much more efficient-yielding lower error at similar computational costs (Kloeden et al., 2012)-and the multitude of available ODE solver schemes. When compared to our ablation models, we find that models trained using Flow Matching with the OT path always result in the most efficient sampler, regardless of ODE solver, as demonstrated next.
+
+[BLOCK 14]
+Sample paths. We first qualitatively visualize the difference in sampling paths between diffusion and OT. Figure 6 shows samples from ImageNet-64 models using identical random seeds, where we find that the OT path model starts generating images sooner than the diffusion path models, where noise dominates the image until the very last time point. We additionally depict the probability density paths in 2D generation of a checkerboard pattern, Figure 4 (left), noticing a similar trend.
+
+[BLOCK 15]
+Low-cost samples. We next switch to fixed-step solvers and compare low (≤100) NFE samples computed with the ImageNet-32 models from Table 1. In Figure 7 (left), we compare the per-pixel MSE of low NFE solutions compared with 1000 NFE solutions (we use 256 random noise seeds), and notice that the FM with OT model produces the best numerical error, in terms of computational cost, requiring roughly only 60% of the NFEs to reach the same error threshold as diffusion models. Secondly, Figure 7 (right) shows how FID changes as a result of the computational cost, where we find FM with OT is able to achieve decent FID even at very low NFE values, producing better tradeoff between sample quality and cost compared to ablated models. Figure 4 (right) shows low-cost sampling effects for the 2D checkerboard experiment.
+
+[BLOCK 16]
+6.3 CONDITIONAL SAMPLING FROM LOW-RESOLUTION IMAGES
+
+[BLOCK 17]
+Lastly, we experimented with Flow Matching for conditional image generation. In particular, upsampling images from 64×64 to 256×256. We follow the evaluation procedure in (Saharia et al., 2022) and compute the FID of the upsampled validation images; baselines include reference (FID of original validation set), and regression. Results are in Table 2. Upsampled image samples are shown in Figures 14, 15 in the Appendix. FM-OT achieves similar PSNR and SSIM values to (Saharia et al., 2022) while considerably improving on FID and IS, which as argued by (Saharia et al., 2022) is a better indication of generation quality.
+
+[BLOCK 18]
+7 CONCLUSION
+
+[BLOCK 19]
+Model FID↓ IS↑PSNR↑ SSIM↑
+
+[BLOCK 20]
+Reference 1.9 240.8 - -
+
+[BLOCK 21]
+Regression 15.2 121.1 27.9 0.801 SR3 (Saharia et al., 2022) 5.2 180.1 26.4 0.762
+
+[BLOCK 22]
+FM w/ OT 3.4 200.8 24.7 0.747
+
+[BLOCK 23]
+Table 2: Image super-resolution on the ImageNet validation set.
+
+[BLOCK 24]
+We introduced Flow Matching, a new simulation-free framework for training Continuous Normalizing Flow models, relying on conditional constructions to effortlessly scale to very high dimensions. Furthermore, the FM framework provides an alternative view on diffusion models, and suggests forsaking the stochastic/diffusion construction in favor of more directly specifying the probability path, allowing us to, e.g., construct paths that allow faster sampling and/or improve generation. We experimentally showed the ease of training and sampling when using the Flow Matching framework, and in the future, we expect FM to open the door to allowing a multitude of probability paths (e.g., non-isotropic Gaussians or more general kernels altogether).
+
+===== PDF PAGE 10 | text =====
+
+[BLOCK 1]
+8 SOCIAL RESPONSIBILITY
+
+[BLOCK 2]
+Along side its many positive applications, image generation can also be used for harmful proposes. Using content-controlled training sets and image validation/classification can help reduce these uses. Furthermore, the energy demand for training large deep learning models is increasing at a rapid pace (Amodei et al., 2018; Thompson et al., 2020), focusing on methods that are able to train using less gradient updates / image throughput can lead to significant time and energy savings.
+
+[BLOCK 3]
+REFERENCES
+
+[BLOCK 4]
+Michael S Albergo and Eric Vanden-Eijnden. Building normalizing flows with stochastic inter-
+
+[BLOCK 5]
+polants. arXiv preprint arXiv:2209.15571, 2022.
+
+[BLOCK 6]
+Dario Amodei, Danny Hernandez, Girish SastryJack, Jack Clark, Greg Brockman, and Ilya
+
+[BLOCK 7]
+Sutskever. Ai and compute. https://openai.com/blog/ai-and-compute/, 2018.
+
+[BLOCK 8]
+Mohammadreza Armandpour, Ali Sadeghian, Chunyuan Li, and Mingyuan Zhou. Partition-guided
+
+[BLOCK 9]
+gans. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 5099-5109, 2021.
+
+[BLOCK 10]
+Heli Ben-Hamu, Samuel Cohen, Joey Bose, Brandon Amos, Aditya Grover, Maximilian Nickel,
+
+[BLOCK 11]
+Ricky T. Q. Chen, and Yaron Lipman. Matching normalizing flows and probability paths on manifolds. arXiv preprint arXiv:2207.04711, 2022.
+
+[BLOCK 12]
+Arantxa Casanova, Marlene Careil, Jakob Verbeek, Michal Drozdzal, and Adriana Romero Soriano.
+
+[BLOCK 13]
+Instance-conditioned gan. Advances in Neural Information Processing Systems, 34:27517-27529, 2021.
+
+[BLOCK 14]
+Ricky T. Q. Chen. torchdiffeq, 2018. URL https://github.com/rtqichen/ torchdiffeq.
+
+[BLOCK 15]
+Ricky T. Q. Chen, Yulia Rubanova, Jesse Bettencourt, and David K Duvenaud. Neural ordinary
+
+[BLOCK 16]
+differential equations. Advances in neural information processing systems, 31, 2018.
+
+[BLOCK 17]
+Patryk Chrabaszcz, Ilya Loshchilov, and Frank Hutter. A downsampled variant of imagenet as an
+
+[BLOCK 18]
+alternative to the cifar datasets. arXiv preprint arXiv:1707.08819, 2017.
+
+[BLOCK 19]
+Valentin De Bortoli, James Thornton, Jeremy Heng, and Arnaud Doucet. Diffusion schr ̈odinger
+
+[BLOCK 20]
+bridge with applications to score-based generative modeling. (arXiv:2106.01357), Dec 2021. doi: 10.48550/arXiv.2106.01357. URL http://arxiv.org/abs/2106.01357. arXiv:2106.01357 [cs, math, stat].
+
+[BLOCK 21]
+Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale hier-
+
+[BLOCK 22]
+archical image database. In 2009 IEEE Conference on Computer Vision and Pattern Recognition, pp. 248-255, 2009. doi: 10.1109/CVPR.2009.5206848.
+
+[BLOCK 23]
+Prafulla Dhariwal and Alexander Quinn Nichol. Diffusion models beat GANs on image synthesis.
+
+[BLOCK 24]
+In A. Beygelzimer, Y. Dauphin, P. Liang, and J. Wortman Vaughan (eds.), Advances in Neural Information Processing Systems, 2021. URL https://openreview.net/forum?id= AAWuCvzaVt.
+
+[BLOCK 25]
+John R Dormand and Peter J Prince. A family of embedded runge-kutta formulae. Journal of
+
+[BLOCK 26]
+computational and applied mathematics, 6(1):19-26, 1980.
+
+[BLOCK 27]
+Shian Du, Yihong Luo, Wei Chen, Jian Xu, and Delu Zeng. To-flow: Efficient continuous nor-
+
+[BLOCK 28]
+malizing flows with temporal optimization adjoint with moving speed, 2022. URL https: //arxiv.org/abs/2203.10335.
+
+[BLOCK 29]
+Emilien Dupont, Arnaud Doucet, and Yee Whye Teh. Augmented neural odes. In H. Wallach, H. Larochelle, A. Beygelzimer, F. d ́ Alch ́e-Buc, E. Fox, and R. Garnett (eds.), Advances in Neural Information Processing Systems, volume 32. Curran Associates, Inc., 2019. URL https://proceedings.neurips.cc/paper/2019/file/ 21be9a4bd4f81549a9d1d241981cec3c-Paper.pdf.
+
+===== PDF PAGE 11 | text =====
+
+[BLOCK 1]
+Chris Finlay, J ̈orn-Henrik Jacobsen, Levon Nurbekyan, and Adam M. Oberman. How to train your
+
+[BLOCK 2]
+neural ode: the world of jacobian and kinetic regularization. In ICML, pp. 3154-3164, 2020. URL http://proceedings.mlr.press/v119/finlay20a.html.
+
+[BLOCK 3]
+Will Grathwohl, Ricky T. Q. Chen, Jesse Bettencourt, Ilya Sutskever, and David Duvenaud. Ffjord:
+
+[BLOCK 4]
+Free-form continuous dynamics for scalable reversible generative models, 2018. URL https: //arxiv.org/abs/1810.01367.
+
+[BLOCK 5]
+Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter.
+
+[BLOCK 6]
+Gans trained by a two time-scale update rule converge to a local nash equilibrium. Advances in neural information processing systems, 30, 2017.
+
+[BLOCK 7]
+Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in
+
+[BLOCK 8]
+Neural Information Processing Systems, 33:6840-6851, 2020.
+
+[BLOCK 9]
+Quan Hoang, Tu Dinh Nguyen, Trung Le, and Dinh Phung. Mgan: Training generative adversarial
+
+[BLOCK 10]
+nets with multiple generators. In International conference on learning representations, 2018.
+
+[BLOCK 11]
+Jacob Kelly, Jesse Bettencourt, Matthew J Johnson, and David K Duvenaud. Learning differential
+
+[BLOCK 12]
+equations that are easy to solve. Advances in Neural Information Processing Systems, 33:4370- 4380, 2020.
+
+[BLOCK 13]
+Diederik P Kingma, Tim Salimans, Ben Poole, and Jonathan Ho. Variational diffusion models.
+
+[BLOCK 14]
+In A. Beygelzimer, Y. Dauphin, P. Liang, and J. Wortman Vaughan (eds.), Advances in Neural Information Processing Systems, 2021. URL https://openreview.net/forum?id= 2LdBqxc1Yv.
+
+[BLOCK 15]
+Peter Eris Kloeden, Eckhard Platen, and Henri Schurz. Numerical solution of SDE through computer
+
+[BLOCK 16]
+experiments. Springer Science & Business Media, 2012.
+
+[BLOCK 17]
+Ivan Kobyzev, Simon JD Prince, and Marcus A Brubaker. Normalizing flows: An introduction and
+
+[BLOCK 18]
+review of current methods. IEEE transactions on pattern analysis and machine intelligence, 43 (11):3964-3979, 2020.
+
+[BLOCK 19]
+Alex Krizhevsky, Geoffrey Hinton, et al. Learning multiple layers of features from tiny images.
+
+[BLOCK 20]
+2009.
+
+[BLOCK 21]
+Zinan Lin, Ashish Khetan, Giulia Fanti, and Sewoong Oh. Pacgan: The power of two samples in
+
+[BLOCK 22]
+generative adversarial networks. Advances in neural information processing systems, 31, 2018.
+
+[BLOCK 23]
+Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and
+
+[BLOCK 24]
+transfer data with rectified flow. arXiv preprint arXiv:2209.03003, 2022.
+
+[BLOCK 25]
+Mario Luˇci ́c, Michael Tschannen, Marvin Ritter, Xiaohua Zhai, Olivier Bachem, and Sylvain Gelly.
+
+[BLOCK 26]
+High-fidelity image generation with fewer labels. In International conference on machine learning, pp. 4183-4192. PMLR, 2019.
+
+[BLOCK 27]
+Dimitra Maoutsa, Sebastian Reich, and Manfred Opper. Interacting particle solutions of fokker-planck equations through gradient-log-density estimation. Entropy, 22(8):802, jul 2020a. doi: 10.3390/e22080802. URL https://doi.org/10.3390%2Fe22080802.
+
+[BLOCK 28]
+Dimitra Maoutsa, Sebastian Reich, and Manfred Opper. Interacting particle solutions of fokker-
+
+[BLOCK 29]
+planck equations through gradient-log-density estimation. Entropy, 22(8):802, 2020b.
+
+[BLOCK 30]
+Robert J McCann. A convexity principle for interacting gases. Advances in mathematics, 128(1):
+
+[BLOCK 31]
+153-179, 1997.
+
+[BLOCK 32]
+Kirill Neklyudov, Daniel Severo, and Alireza Makhzani. Action matching: A variational method
+
+[BLOCK 33]
+for learning stochastic dynamics from samples, 2023. URL https://openreview.net/ forum?id=T6HPzkhaKeS.
+
+[BLOCK 34]
+Alexander Quinn Nichol and Prafulla Dhariwal. Improved denoising diffusion probabilistic models.
+
+[BLOCK 35]
+In International Conference on Machine Learning, pp. 8162-8171. PMLR, 2021.
+
+===== PDF PAGE 12 | text =====
+
+[BLOCK 1]
+Derek Onken, Samy Wu Fung, Xingjian Li, and Lars Ruthotto. Ot-flow: Fast and accurate contin-
+
+[BLOCK 2]
+uous normalizing flows via optimal transport. Proceedings of the AAAI Conference on Artificial Intelligence, 35(10):9223-9232, May 2021. URL https://ojs.aaai.org/index.php/ AAAI/article/view/17113.
+
+[BLOCK 3]
+George Papamakarios, Eric T Nalisnick, Danilo Jimenez Rezende, Shakir Mohamed, and Balaji
+
+[BLOCK 4]
+Lakshminarayanan. Normalizing flows for probabilistic modeling and inference. J. Mach. Learn. Res., 22(57):1-64, 2021.
+
+[BLOCK 5]
+Stefano Peluchetti. Non-denoising forward-time diffusions. 2021.
+
+[BLOCK 6]
+Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. Hierarchical text-
+
+[BLOCK 7]
+conditional image generation with clip latents. arXiv preprint arXiv:2204.06125, 2022.
+
+[BLOCK 8]
+Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bj ̈orn Ommer. High-
+
+[BLOCK 9]
+resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 10684-10695, 2022.
+
+[BLOCK 10]
+Noam Rozen, Aditya Grover, Maximilian Nickel, and Yaron Lipman. Moser flow: Divergence-
+
+[BLOCK 11]
+based generative modeling on manifolds. In A. Beygelzimer, Y. Dauphin, P. Liang, and J. Wortman Vaughan (eds.), Advances in Neural Information Processing Systems, 2021. URL https://openreview.net/forum?id=qGvMv3undNJ.
+
+[BLOCK 12]
+Alexander Sage, Eirikur Agustsson, Radu Timofte, and Luc Van Gool. Logo synthesis and manipu-
+
+[BLOCK 13]
+lation with clustered generative adversarial networks. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 5879-5888, 2018.
+
+[BLOCK 14]
+Chitwan Saharia, Jonathan Ho, William Chan, Tim Salimans, David J Fleet, and Mohammad
+
+[BLOCK 15]
+Norouzi. Image super-resolution via iterative refinement. IEEE Transactions on Pattern Analysis and Machine Intelligence, 2022.
+
+[BLOCK 16]
+Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsupervised
+
+[BLOCK 17]
+learning using nonequilibrium thermodynamics. In International Conference on Machine Learning, pp. 2256-2265. PMLR, 2015.
+
+[BLOCK 18]
+Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. arXiv
+
+[BLOCK 19]
+preprint arXiv:2010.02502, 2020a.
+
+[BLOCK 20]
+Yang Song and Stefano Ermon. Generative modeling by estimating gradients of the data distri-
+
+[BLOCK 21]
+bution. In H. Wallach, H. Larochelle, A. Beygelzimer, F. d ́ Alch ́e-Buc, E. Fox, and R. Garnett (eds.), Advances in Neural Information Processing Systems, volume 32. Curran Associates, Inc., 2019. URL https://proceedings.neurips.cc/paper/2019/file/ 3001ef257407d5a371a96dcd947c7d93-Paper.pdf.
+
+[BLOCK 22]
+Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben
+
+[BLOCK 23]
+Poole. Score-based generative modeling through stochastic differential equations. arXiv preprint arXiv:2011.13456, 2020b.
+
+[BLOCK 24]
+Yang Song, Conor Durkan, Iain Murray, and Stefano Ermon. Maximum likelihood training of score-
+
+[BLOCK 25]
+based diffusion models. In Thirty-Fifth Conference on Neural Information Processing Systems, 2021.
+
+[BLOCK 26]
+Neil C Thompson, Kristjan Greenewald, Keeheon Lee, and Gabriel F Manso. The computational
+
+[BLOCK 27]
+limits of deep learning. arXiv preprint arXiv:2007.05558, 2020.
+
+[BLOCK 28]
+Alexander Tong, Jessie Huang, Guy Wolf, David Van Dijk, and Smita Krishnaswamy. Trajectorynet:
+
+[BLOCK 29]
+A dynamic optimal transport network for modeling cellular dynamics. In International conference on machine learning, pp. 9526-9536. PMLR, 2020.
+
+[BLOCK 30]
+C ́edric Villani. Optimal transport: old and new, volume 338. Springer, 2009.
+
+[BLOCK 31]
+Pascal Vincent. A connection between score matching and denoising autoencoders. Neural compu-
+
+[BLOCK 32]
+tation, 23(7):1661-1674, 2011.
+
+===== PDF PAGE 13 | text =====
+
+[BLOCK 1]
+Gefei Wang, Yuling Jiao, Qian Xu, Yang Wang, and Can Yang. Deep generative learning via schr ̈odinger bridge. (arXiv:2106.10410), Jul 2021. doi: 10.48550/arXiv.2106.10410. URL http://arxiv.org/abs/2106.10410. arXiv:2106.10410 [cs].
+
+[BLOCK 2]
+Liu Yang and George E. Karniadakis. Potential flow generator with $l 2$ optimal transport regu-
+
+[BLOCK 3]
+larity for generative models. CoRR, abs/1908.11462, 2019. URL http://arxiv.org/abs/ 1908.11462.
+
+[BLOCK 4]
+Qinsheng Zhang and Yongxin Chen. Fast sampling of diffusion models with exponential integrator.
+
+[BLOCK 5]
+arXiv preprint arXiv:2204.13902, 2022.
+
+===== PDF PAGE 14 | text =====
+
+[BLOCK 1]
+A THEOREM PROOFS
+
+[BLOCK 2]
+Theorem 1. Given vector fields ut(x|x1) that generate conditional probability paths pt(x|x1), for any distribution q(x1), the marginal vector field ut in equation 8 generates the marginal probability path pt in equation 6, i.e., ut and pt satisfy the continuity equation (equation 26).
+
+[BLOCK 3]
+Proof. To verify this, we check that pt and ut satisfy the continuity equation (equation 26):
+
+[BLOCK 4]
+Z d
+
+[BLOCK 5]
+d dtpt(x) =
+
+[BLOCK 6]
+Z
+
+[BLOCK 7]
+q(x1)dx1 = -
+
+[BLOCK 8]
+dtpt(x|x1)
+
+[BLOCK 9]
+Z
+
+[BLOCK 10]
+ut(x|x1)pt(x|x1)
+
+[BLOCK 11]
+div
+
+[BLOCK 12]
+q(x1)dx1
+
+[BLOCK 13]
+ut(x|x1)pt(x|x1)q(x1)dx1
+
+[BLOCK 14]
+= -div
+
+[BLOCK 15]
+= -div
+
+[BLOCK 16]
+ut(x)pt(x)
+
+[BLOCK 17]
+,
+
+[BLOCK 18]
+where in the second equality we used the fact that ut(·|x1) generates pt(·|x1), in the last equality we used equation 8. Furthermore, the first and third equalities are justified by assuming the integrands satisfy the regularity conditions of the Leibniz Rule (for exchanging integration and differentiation).
+
+[BLOCK 19]
+Theorem 2. Assuming that pt(x) > 0 for all x ∈Rd and t ∈[0, 1], then, up to a constant independent of θ, LCFM and LFM are equal. Hence, ∇θLFM(θ) = ∇θLCFM(θ).
+
+[BLOCK 20]
+Proof. To ensure existence of all integrals and to allow the changing of integration order (by Fubini's Theorem) in the following we assume that q(x) and pt(x|x1) are decreasing to zero at a sufficient speed as ∥x∥→∞, and that ut, vt, ∇θvt are bounded.
+
+[BLOCK 21]
+First, using the standard bilinearity of the 2-norm we have that
+
+[BLOCK 22]
+∥vt(x) -ut(x)∥2 = ∥vt(x)∥2 -2 ⟨vt(x), ut(x)⟩+ ∥ut(x)∥2
+
+[BLOCK 23]
+∥vt(x) -ut(x|x1)∥2 = ∥vt(x)∥2 -2 ⟨vt(x), ut(x|x1)⟩+ ∥ut(x|x1)∥2
+
+[BLOCK 24]
+Next, remember that ut is independent of θ and note that
+
+[BLOCK 25]
+Z
+
+[BLOCK 26]
+Ept(x)∥vt(x)∥2 =
+
+[BLOCK 27]
+Z
+
+[BLOCK 28]
+∥vt(x)∥2pt(x)dx =
+
+[BLOCK 29]
+∥vt(x)∥2pt(x|x1)q(x1)dx1dx
+
+[BLOCK 30]
+= Eq(x1),pt(x|x1)∥vt(x)∥2,
+
+[BLOCK 31]
+where in the second equality we use equation 6, and in the third equality we change the order of integration. Next,
+
+[BLOCK 32]
+Z
+
+[BLOCK 33]
+Ept(x) ⟨vt(x), ut(x)⟩=
+
+[BLOCK 34]
+vt(x),
+
+[BLOCK 35]
+Z
+
+[BLOCK 36]
+=
+
+[BLOCK 37]
+vt(x),
+
+[BLOCK 38]
+Z
+
+[BLOCK 39]
+R
+
+[BLOCK 40]
+ut(x|x1)pt(x|x1)q(x1)dx1
+
+[BLOCK 41]
+pt(x)dx
+
+[BLOCK 42]
+pt(x)
+
+[BLOCK 43]
+Z
+
+[BLOCK 44]
+ut(x|x1)pt(x|x1)q(x1)dx1
+
+[BLOCK 45]
+dx
+
+[BLOCK 46]
+⟨vt(x), ut(x|x1)⟩pt(x|x1)q(x1)dx1dx
+
+[BLOCK 47]
+=
+
+[BLOCK 48]
+= Eq(x1),pt(x|x1) ⟨vt(x), ut(x|x1)⟩,
+
+[BLOCK 49]
+where in the last equality we change again the order of integration.
+
+[BLOCK 50]
+Theorem 3. Let pt(x|x1) be a Gaussian probability path as in equation 10, and ψt its corresponding flow map as in equation 11. Then, the unique vector field that defines ψt has the form:
+
+[BLOCK 51]
+ut(x|x1) = σ′
+
+[BLOCK 52]
+t(x1) σt(x1) (x -μt(x1)) + μ′
+
+[BLOCK 53]
+t(x1). (15)
+
+[BLOCK 54]
+Consequently, ut(x|x1) generates the Gaussian path pt(x|x1).
+
+===== PDF PAGE 15 | text =====
+
+[BLOCK 1]
+Proof. For notational simplicity let wt(x) = ut(x|x1). Now consider equation 1:
+
+[BLOCK 2]
+d dtψt(x) = wt(ψt(x)).
+
+[BLOCK 3]
+Since ψt is invertible (as σt(x1) > 0) we let x = ψ-1(y) and get
+
+[BLOCK 4]
+t(ψ-1(y)) = wt(y), (25)
+
+[BLOCK 5]
+ψ′
+
+[BLOCK 6]
+where we used the apostrophe notation for the derivative to emphasis that ψ′
+
+[BLOCK 7]
+t is evaluated at ψ-1(y). Now, inverting ψt(x) provides
+
+[BLOCK 8]
+t (y) = y -μt(x1)
+
+[BLOCK 9]
+ψ-1
+
+[BLOCK 10]
+Differentiating ψt with respect to t gives
+
+[BLOCK 11]
+σt(x1) .
+
+[BLOCK 12]
+t(x1)x + μ′
+
+[BLOCK 13]
+ψ′
+
+[BLOCK 14]
+t(x) = σ′
+
+[BLOCK 15]
+t(x1).
+
+[BLOCK 16]
+Plugging these last two equations in equation 25 we get
+
+[BLOCK 17]
+wt(y) = σ′
+
+[BLOCK 18]
+t(x1) σt(x1) (y -μt(x1)) + μ′
+
+[BLOCK 19]
+as required.
+
+[BLOCK 20]
+B THE CONTINUITY EQUATION
+
+[BLOCK 21]
+t(x1)
+
+[BLOCK 22]
+One method of testing if a vector field vt generates a probability path pt is the continuity equation (Villani, 2009). It is a Partial Differential Equation (PDE) providing a necessary and sufficient condition to ensuring that a vector field vt generates pt,
+
+[BLOCK 23]
+d dtpt(x) + div(pt(x)vt(x)) = 0, (26)
+
+[BLOCK 24]
+where the divergence operator, div, is defined with respect to the spatial variable x = (x1, . . . , xd), i.e., div = Pd
+
+[BLOCK 25]
+∂ ∂xi .
+
+[BLOCK 26]
+i=1
+
+[BLOCK 27]
+C COMPUTING PROBABILITIES OF THE CNF MODEL
+
+[BLOCK 28]
+We are given an arbitrary data point x1 ∈Rd and need to compute the model probability at that point, i.e., p1(x1). Below we recap how this can be done covering the basic relevant ODEs, the scaling of the divergence computation, taking into account data transformations (e.g., centering of data), and Bits-Per-Dimension computation.
+
+[BLOCK 29]
+ODE for computing p1(x1) The continuity equation with equation 1 lead to the instantaneous change of variable (Chen et al., 2018; Ben-Hamu et al., 2022):
+
+[BLOCK 30]
+d dt log pt(φt(x)) + div(vt(φt(x)) = 0.
+
+[BLOCK 31]
+Integrating t ∈[0, 1] gives:
+
+[BLOCK 32]
+Z 1
+
+[BLOCK 33]
+log p1(φ1(x)) -log p0(φ0(x)) = -
+
+[BLOCK 34]
+0 div(vt(φt(x)))dt (27)
+
+[BLOCK 35]
+Therefore, the log probability can be computed together with the flow trajectory by solving the ODE:
+
+[BLOCK 36]
+d dt
+
+[BLOCK 37]
+φt(x)
+
+[BLOCK 38]
+=
+
+[BLOCK 39]
+f(t)
+
+[BLOCK 40]
+Given initial conditions
+
+[BLOCK 41]
+φ0(x)
+
+[BLOCK 42]
+f(0)
+
+[BLOCK 43]
+vt(φt(x)) -div(vt(φt(x)))
+
+[BLOCK 44]
+(28)
+
+[BLOCK 45]
+x0
+
+[BLOCK 46]
+=
+
+[BLOCK 47]
+. (29)
+
+[BLOCK 48]
+c
+
+===== PDF PAGE 16 | text =====
+
+[BLOCK 1]
+the solution [φt(x), f(t)]T is uniquely defined (up to some mild conditions on the VF vt). Denote x1 = φ1(x), and according to equation 27,
+
+[BLOCK 2]
+f(1) = c + log p1(x1) -log p0(x0). (30)
+
+[BLOCK 3]
+Now, we are given an arbitrary x1 and want to compute p1(x1). For this end, we will need to solve equation 28 in reverse. That is,
+
+[BLOCK 4]
+d ds
+
+[BLOCK 5]
+φ1-s(x) f(1 -s)
+
+[BLOCK 6]
+=
+
+[BLOCK 7]
+-v1-s(φ1-s(x)) div(v1-s(φ1-s(x)))
+
+[BLOCK 8]
+(31)
+
+[BLOCK 9]
+and we solve this equation for s ∈[0, 1] with the initial conditions at s = 0:
+
+[BLOCK 10]
+φ1(x)
+
+[BLOCK 11]
+f(1)
+
+[BLOCK 12]
+x1
+
+[BLOCK 13]
+=
+
+[BLOCK 14]
+. (32)
+
+[BLOCK 15]
+From uniqueness of ODEs, the solution will be identical to the solution of equation 28 with initial conditions in equation 29 where c = log p0(x0) -log p1(x1). This can be seen from equation 30 and setting f(1) = 0. Therefore we get that
+
+[BLOCK 16]
+f(0) = log p0(x0) -log p1(x1)
+
+[BLOCK 17]
+and consequently
+
+[BLOCK 18]
+log p1(x1) = log p0(x0) -f(0). (33)
+
+[BLOCK 19]
+To summarize, to compute p1(x1) we first solve the ODE in equation 31 with initial conditions in equation 32, and the compute equation 33.
+
+[BLOCK 20]
+Unbiased estimator to p1(x1) Solving equation 31 requires computation of div of VFs in Rd which is costly. Grathwohl et al. (2018) suggest to replace the divergence by the (unbiased) Hutchinson trace estimator,
+
+[BLOCK 21]
+φ1-s(x)
+
+[BLOCK 22]
+-v1-s(φ1-s(x)) zT Dv1-s(φ1-s(x))z
+
+[BLOCK 23]
+d ds
+
+[BLOCK 24]
+=
+
+[BLOCK 25]
+̃f(1 -s)
+
+[BLOCK 26]
+, (34)
+
+[BLOCK 27]
+where z ∈Rd is a sample from a random variable such that EzzT = I. Solving the ODE in equation 34 exactly (in practice, with a small controlled error) with initial conditions in equation 32 leads to
+
+[BLOCK 28]
+h
+
+[BLOCK 29]
+i
+
+[BLOCK 30]
+log p0(x0) - ̃f(0)
+
+[BLOCK 31]
+h
+
+[BLOCK 32]
+i
+
+[BLOCK 33]
+̃f(0) - ̃f(1)
+
+[BLOCK 34]
+= log p0(x0) -Ez
+
+[BLOCK 35]
+Ez
+
+[BLOCK 36]
+Z 1
+
+[BLOCK 37]
+0 zT Dv1-s(φ1-s(x))z ds
+
+[BLOCK 38]
+= log p0(x0) -Ez
+
+[BLOCK 39]
+= log p0(x0) -
+
+[BLOCK 40]
+= log p0(x0) -
+
+[BLOCK 41]
+Z 1
+
+[BLOCK 42]
+zT Dv1-s(φ1-s(x))z
+
+[BLOCK 43]
+ds
+
+[BLOCK 44]
+0 Ez
+
+[BLOCK 45]
+Z 1
+
+[BLOCK 46]
+0 div(v1-s(φ1-s(x)))ds
+
+[BLOCK 47]
+= log p0(x0) -(f(0) -f(1)) = log p0(x0) -(log p0(x0) -log p1(x1)) = log p1(x1),
+
+[BLOCK 48]
+where in the third equality we switched order of integration assuming the sufficient condition of Fubini's theorem hold, and in the previous to last equality we used equation 30. Therefore the random variable
+
+[BLOCK 49]
+log p0(x0) - ̃f(0) (35)
+
+[BLOCK 50]
+is an unbiased estimator for log p1(x1). To summarize, for a scalable unbiased estimation of p1(x1) we first solve the ODE in equation 34 with initial conditions in equation 32, and then output equation 35.
+
+===== PDF PAGE 17 | text =====
+
+[BLOCK 1]
+Transformed data Often, before training our generative model we transform the data, e.g., we scale and/or translate the data. Such a transformation is denoted by φ-1 : Rd →Rd and our generative model becomes a composition
+
+[BLOCK 2]
+ψ(x) = φ ◦φ(x)
+
+[BLOCK 3]
+where φ : Rd →Rd is the model we train. Given a prior probability p0 we have that the push forward of this probability under ψ (equation 3 and equation 4) takes the form
+
+[BLOCK 4]
+p1(x) = ψ∗p0(x) = p0(φ-1(φ-1(x))) det
+
+[BLOCK 5]
+φ∗p0(φ-1(x))
+
+[BLOCK 6]
+=
+
+[BLOCK 7]
+and therefore
+
+[BLOCK 8]
+Dφ-1(φ-1(x))
+
+[BLOCK 9]
+Dφ-1(x)
+
+[BLOCK 10]
+det
+
+[BLOCK 11]
+Dφ-1(x)
+
+[BLOCK 12]
+det
+
+[BLOCK 13]
+Dφ-1(x)
+
+[BLOCK 14]
+log p1(x) = log φ∗p0(φ-1(x)) + log det
+
+[BLOCK 15]
+.
+
+[BLOCK 16]
+For images d = H × W × 3 and we consider a transform φ that maps each pixel value from [-1, 1] to [0, 256]. Therefore,
+
+[BLOCK 17]
+φ(y) = 27(y + 1) and
+
+[BLOCK 18]
+φ-1(x) = 2-7x -1 For this case we have
+
+[BLOCK 19]
+log p1(x) = log φ∗p0(φ-1(x)) -7d log 2. (36)
+
+[BLOCK 20]
+Bits-Per-Dimension (BPD) computation BPD is defined by
+
+[BLOCK 21]
+-log2 p1(x1)
+
+[BLOCK 22]
+BPD = Ex1
+
+[BLOCK 23]
+d
+
+[BLOCK 24]
+Following equation 36 we get
+
+[BLOCK 25]
+-log p1(x1)
+
+[BLOCK 26]
+= Ex1
+
+[BLOCK 27]
+(37)
+
+[BLOCK 28]
+d log 2
+
+[BLOCK 29]
+BPD = -log φ∗p0(φ-1(x))
+
+[BLOCK 30]
+d log 2 + 7
+
+[BLOCK 31]
+and log φ∗p0(φ-1(x)) is approximated using the unbiased estimator in equation 35 over the transformed data φ-1(x1). Averaging the unbiased estimator on a large test test x1 provides a good approximation to the test set BPD.
+
+[BLOCK 32]
+D DIFFUSION CONDITIONAL VECTOR FIELDS
+
+[BLOCK 33]
+We derive the vector field governing the Probability Flow ODE (equation 13 in Song et al. (2020b)) for the VE and VP diffusion paths (equation 18) and note that it coincides with the conditional vector fields we derive using Theorem 3, namely the vector fields defined in equations 16 and 19.
+
+[BLOCK 34]
+We start with a short primer on how to find a conditional vector field for the probability path described by the Fokker-Planck equation, then instantiate it for the VE and VP probability paths.
+
+[BLOCK 35]
+Since in the diffusion literature the diffusion process runs from data at time t = 0 to noise at time t = 1, we will need the following lemma to translate the diffusion VFs to our convention of t = 0 corresponds to noise and t = 1 corresponds to data: Lemma 1. Consider a flow defined by a vector field ut(x) generating probability density path pt(x). Then, the vector field ̃ut(x) = -u1-t(x) generates the path ̃pt(x) = p1-t(x) when initiated from
+
+[BLOCK 36]
+̃p0(x) = p1(x).
+
+[BLOCK 37]
+Proof. We use the continuity equation (equation 26):
+
+[BLOCK 38]
+d dt ̃pt(x) = d
+
+[BLOCK 39]
+dtp1-t(x) = -p′
+
+[BLOCK 40]
+and therefore ̃ut(x) = -u1-t(x) generates ̃pt(x).
+
+[BLOCK 41]
+1-t(x)
+
+[BLOCK 42]
+= div(p1-t(x)u1-t(x)) = -div( ̃pt(x)(-u1-t(x)))
+
+===== PDF PAGE 18 | text =====
+
+[BLOCK 1]
+Conditional VFs for Fokker-Planck probability paths Consider a Stochastic Differential Equation (SDE) of the standard form
+
+[BLOCK 2]
+dy = ftdt + gtdw (38) with time parameter t, drift ft, diffusion coefficient gt, and dw is the Wiener process. The solution yt to the SDE is a stochastic process, i.e., a continuous time-dependent random variable, the probability density of which, pt(yt), is characterized by the Fokker-Planck equation:
+
+[BLOCK 3]
+dt = -div(ftpt) + g2
+
+[BLOCK 4]
+dpt
+
+[BLOCK 5]
+t 2 ∆pt (39)
+
+[BLOCK 6]
+where ∆represents the Laplace operator (in y), namely div∇, where ∇is the gradient operator (also in y). Rewriting this equation in the form of the continuity equation can be done as follows (Maoutsa et al., 2020a):
+
+[BLOCK 7]
+ftpt -g2
+
+[BLOCK 8]
+2 ∇pt
+
+[BLOCK 9]
+dpt
+
+[BLOCK 10]
+dt = -div
+
+[BLOCK 11]
+= -div
+
+[BLOCK 12]
+pt
+
+[BLOCK 13]
+pt
+
+[BLOCK 14]
+where the vector field
+
+[BLOCK 15]
+wt = ft -g2
+
+[BLOCK 16]
+ft -g2
+
+[BLOCK 17]
+t 2 ∇log pt
+
+[BLOCK 18]
+= -div
+
+[BLOCK 19]
+pt
+
+[BLOCK 20]
+wtpt
+
+[BLOCK 21]
+t 2 ∇log pt (40)
+
+[BLOCK 22]
+satisfies the continuity equation with the probability path pt, and therefore generates pt.
+
+[BLOCK 23]
+Variance Exploding (VE) path The SDE for the VE path is
+
+[BLOCK 24]
+dy =
+
+[BLOCK 25]
+r
+
+[BLOCK 26]
+d dtσ2
+
+[BLOCK 27]
+t dw,
+
+[BLOCK 28]
+where σ0 = 0 and increasing to infinity as t →1. The SDE is moving from data, y0, at t = 0 to noise, y1, at t = 1 with the probability path
+
+[BLOCK 29]
+pt(y|y0) = N(y|y0, σ2
+
+[BLOCK 30]
+t I). The conditional VF according to equation 40 is:
+
+[BLOCK 31]
+wt(y|y0) = σ′
+
+[BLOCK 32]
+Using Lemma 1 we get that the probability path
+
+[BLOCK 33]
+t σt
+
+[BLOCK 34]
+(y -y0)
+
+[BLOCK 35]
+̃pt(y|y0) = N(y|y0, σ2
+
+[BLOCK 36]
+1-tI) is generated by
+
+[BLOCK 37]
+̃wt(y|y0) = -σ′
+
+[BLOCK 38]
+which coincides with equation 17.
+
+[BLOCK 39]
+1-t σ1-t
+
+[BLOCK 40]
+(y -y0),
+
+[BLOCK 41]
+Variance Preserving (VP) path The SDE for the VP path is
+
+[BLOCK 42]
+dy = -T ′(t)
+
+[BLOCK 43]
+2 y +
+
+[BLOCK 44]
+R t
+
+[BLOCK 45]
+p
+
+[BLOCK 46]
+T ′(t)dw,
+
+[BLOCK 47]
+0 β(s)ds, t ∈[0, 1]. The SDE coefficients are therefore
+
+[BLOCK 48]
+where T(t) =
+
+[BLOCK 49]
+fs(y) = -T ′(s)
+
+[BLOCK 50]
+p
+
+[BLOCK 51]
+T ′(s)
+
+[BLOCK 52]
+2 y, gs =
+
+[BLOCK 53]
+and
+
+[BLOCK 54]
+pt(y|y0) = N(y|e-1
+
+[BLOCK 55]
+2 T (t)y0, (1 -e-T (t))I). Plugging these choices in equation 40 we get the conditional VF
+
+[BLOCK 56]
+wt(y|y0) = T ′(t)
+
+[BLOCK 57]
+!
+
+[BLOCK 58]
+y -e-1
+
+[BLOCK 59]
+2 T (t)y0 1 -e-T (t) -y
+
+[BLOCK 60]
+(41)
+
+[BLOCK 61]
+Using Lemma 1 to reverse the time we get the conditional VF for the reverse probability path:
+
+[BLOCK 62]
+̃wt(y|y0) = -T ′(1 -t)
+
+[BLOCK 63]
+"
+
+[BLOCK 64]
+= -T ′(1 -t)
+
+[BLOCK 65]
+which coincides with equation 19.
+
+[BLOCK 66]
+!
+
+[BLOCK 67]
+y -e-1
+
+[BLOCK 68]
+2 T (1-t)y0 1 -e-T (1-t) -y
+
+[BLOCK 69]
+#
+
+[BLOCK 70]
+e-T (1-t)y -e-1
+
+[BLOCK 71]
+2 T (1-t)y0 1 -e-T (1-t)
+
+[BLOCK 72]
+,
+
+===== PDF PAGE 19 | text =====
+
+[BLOCK 1]
+t = 0.0 t = 1/3 t = 2/3 t = 1.0
+
+[BLOCK 2]
+Diffusion path - conditional vector field
+
+[BLOCK 3]
+Figure 8: VP Diffusion path's conditional vector field. Compare to Figure 2.
+
+[BLOCK 4]
+ScoreFlow
+
+[BLOCK 5]
+DDPM
+
+[BLOCK 6]
+Figure 9: Trajectories of CNFs trained with ScoreFlow (Song et al., 2021) and DDPM (Ho et al., 2020) losses on 2D checkerboard data, using the same learning rate and other hyperparameters as Figure 4.
+
+[BLOCK 7]
+E IMPLEMENTATION DETAILS
+
+[BLOCK 8]
+For the 2D example we used an MLP with 5-layers of 512 neurons each, while for images we used the UNet architecture from Dhariwal & Nichol (2021). For images, we center crop images and resize to the appropriate dimension, whereas for the 32×32 and 64×64 resolutions we use the same pre-processing as (Chrabaszcz et al., 2017). The three methods (FM-OT, FM-Diffusion, and SM- Diffusion) are always trained on the same architecture, same hyper-parameters, and for the same number of epochs.
+
+[BLOCK 9]
+E.1 DIFFUSION BASELINES
+
+[BLOCK 10]
+Losses. We consider three options as diffusion baselines that correspond to the most popular diffusion loss parametrizations (Song & Ermon, 2019; Song et al., 2021; Ho et al., 2020; Kingma et al., 2021). We will assume general Gaussian path form of equation 10, i.e.,
+
+[BLOCK 11]
+pt(x|x1) = N(x|μt(x1), σ2
+
+[BLOCK 12]
+Score Matching loss is
+
+[BLOCK 13]
+t (x1)I).
+
+[BLOCK 14]
+LSM(θ) = Et,q(x1),pt(x|x1)λ(t) ∥st(x) -∇log pt(x|x1)∥2 (42)
+
+[BLOCK 15]
+= Et,q(x1),pt(x|x1)λ(t)
+
+[BLOCK 16]
+Taking λ(t) = σ2
+
+[BLOCK 17]
+2 . (43)
+
+[BLOCK 18]
+st(x) -x -μt(x1)
+
+[BLOCK 19]
+σ2
+
+[BLOCK 20]
+t (x1)
+
+[BLOCK 21]
+t (x1) corresponds to the original Score Matching (SM) loss from Song & Ermon (2019), while considering λ(t) = β(1 -t) (β is defined below) corresponds to the Score Flow (SF) loss motivated by an NLL upper bound (Song et al., 2021); st is the learnable score function. DDPM (Noise Matching) loss from Ho et al. (2020) (equation 14) is
+
+[BLOCK 22]
+LNM(θ) = Et,q(x1),pt(x|x1)
+
+[BLOCK 23]
+2 (44)
+
+[BLOCK 24]
+εt(x) -x -μt(x1)
+
+[BLOCK 25]
+σt(x1)
+
+[BLOCK 26]
+2 (45)
+
+[BLOCK 27]
+εt(σt(x1)x0 + μt(x1)) -x0
+
+[BLOCK 28]
+= Et,q(x1),p0(x0)
+
+[BLOCK 29]
+where p0(x) = N(x|0, I) is the standard Gaussian, and εt is the learnable noise function.
+
+[BLOCK 30]
+Diffusion path. For the diffusion path we use the standard VP diffusion (equation 19), namely,
+
+[BLOCK 31]
+q
+
+[BLOCK 32]
+Z t
+
+[BLOCK 33]
+1 -α2 1-t, where αt = e-1
+
+[BLOCK 34]
+μt(x1) = α1-tx1, σt(x1) =
+
+[BLOCK 35]
+2 T (t), T(t) =
+
+[BLOCK 36]
+0 β(s)ds,
+
+===== PDF PAGE 20 | text =====
+
+[BLOCK 1]
+CIFAR10 ImageNet-32 ImageNet-64 ImageNet-128
+
+[BLOCK 2]
+Channels 256 256 192 256 Depth 2 3 3 3 Channels multiple 1,2,2,2 1,2,2,2 1,2,3,4 1,1,2,3,4 Heads 4 4 4 4 Heads Channels 64 64 64 64 Attention resolution 16 16,8 32,16,8 32,16,8 Dropout 0.0 0.0 0.0 0.0 Effective Batch size 256 1024 2048 1536 GPUs 2 4 16 32 Epochs 1000 200 250 571 Iterations 391k 250k 157k 500k Learning Rate 5e-4 1e-4 1e-4 1e-4 Learning Rate Scheduler Polynomial Decay Polynomial Decay Constant Polynomial Decay Warmup Steps 45k 20k - 20k
+
+[BLOCK 3]
+Table 3: Hyper-parameters used for training each model
+
+[BLOCK 4]
+with, as suggested in Song et al. (2020b), β(s) = βmin + s(βmax -βmin) and consequently
+
+[BLOCK 5]
+Z s
+
+[BLOCK 6]
+0 β(r)dr = sβmin + 1
+
+[BLOCK 7]
+T(s) =
+
+[BLOCK 8]
+2s2(βmax -βmin),
+
+[BLOCK 9]
+where βmin = 0.1, βmax = 20 and time is sampled in [0, 1-ε], ε = 10-5 for training and likelihood and ε = 10-5 for sampling.
+
+[BLOCK 10]
+Sampling. Score matching samples are produced by solving the ODE (equation 1) with the vector field
+
+[BLOCK 11]
+ut(x) = -T ′(1 -t)
+
+[BLOCK 12]
+2 [st(x) -x] . (46)
+
+[BLOCK 13]
+DDPM samples are computed with equation 46 after setting st(x) = εt(x)/σt, where σt = q
+
+[BLOCK 14]
+1 -α2 1-t.
+
+[BLOCK 15]
+E.2 TRAINING & EVALUATION DETAILS
+
+[BLOCK 16]
+We report the hyper-parameters used in Table 3. We use full 32 bit-precision for training CIFAR10 and ImageNet-32 and 16-bit mixed precision for training ImageNet-64/128/256. All models are trained using the Adam optimizer with the following parameters: β1 = 0.9, β2 = 0.999, weight decay = 0.0, and ε = 1e-8. All methods we trained (i.e., FM-OT, FM-Diffusion, SM-Diffusion) using identical architectures, with the same parameters for the the same number of Epochs (see Table 3 for details). We use either a constant learning rate schedule or a polynomial decay schedule (see Table 3). The polynomial decay learning rate schedule includes a warm-up phase for a specified number of training steps. In the warm-up phase, the learning rate is linearly increased from 1e-8 to the peak learning rate (specified in Table 3). Once the peak learning rate is achieved, it linearly decays the learning rate down to 1e-8 until the final training step.
+
+[BLOCK 17]
+When reporting negative log-likelihood, we dequantize using the standard uniform dequantization. We report an importance-weighted estimate using
+
+[BLOCK 18]
+K X
+
+[BLOCK 19]
+log 1
+
+[BLOCK 20]
+pt(x + uk), where uk ∼U(0, 1), (47)
+
+[BLOCK 21]
+K
+
+[BLOCK 22]
+k=1
+
+[BLOCK 23]
+with x is in {0, ..., 255} and solved at t = 1 with an adaptive step size solver dopri5 with atol=rtol=1e-5 using the torchdiffeq (Chen, 2018) library. Estimated values for different values of K are in Table 4.
+
+===== PDF PAGE 21 | text =====
+
+[BLOCK 1]
+CIFAR-10 ImageNet 32×32 ImageNet 64×64
+
+[BLOCK 2]
+Model K=1 K=20 K=50 K=1 K=5 K=15 K=1 K=5 K=10
+
+[BLOCK 3]
+Ablation
+
+[BLOCK 4]
+DDPM 3.24 3.14 3.12 3.62 3.57 3.54 3.36 3.33 3.32 Score Matching 3.28 3.18 3.16 3.65 3.59 3.57 3.43 3.41 3.40 ScoreFlow 3.21 3.11 3.09 3.63 3.57 3.55 3.39 3.37 3.36
+
+[BLOCK 5]
+Ours
+
+[BLOCK 6]
+FM w/ Diffusion 3.23 3.13 3.10 3.64 3.58 3.56 3.37 3.34 3.33 FM w/ OT 3.11 3.01 2.99 3.62 3.56 3.53 3.35 3.33 3.31
+
+[BLOCK 7]
+Table 4: Negative log-likelihood (in bits per dimension) on the test set with different values of K using uniform dequantization.
+
+[BLOCK 8]
+score_dif fm_dif fm_ot
+
+[BLOCK 9]
+0 100 200 300 400 500 Epochs
+
+[BLOCK 10]
+Figure 10: Function evaluations for sampling during training, for models trained on CIFAR-10 using dopri5 solver with tolerance 1e-5.
+
+[BLOCK 11]
+When computing FID/Inception scores for CIFAR10, ImageNet-32/64 we use the TensorFlow GAN library 2. To remain comparable to Dhariwal & Nichol (2021) for ImageNet-128 we use the evaluation script they include in their publicly available code repository 3.
+
+[BLOCK 12]
+F ADDITIONAL TABLES AND FIGURES
+
+[BLOCK 13]
+2https://github.com/tensorflow/gan 3https://github.com/openai/guided-diffusion
+
+===== PDF PAGE 22 | text =====
+
+[BLOCK 1]
+Figure 11: Non-curated unconditional ImageNet-32 generated images of a CNF trained with FM- OT.
+
+===== PDF PAGE 23 | text =====
+
+[BLOCK 1]
+Figure 12: Non-curated unconditional ImageNet-64 generated images of a CNF trained with FM- OT.
+
+===== PDF PAGE 24 | text =====
+
+[BLOCK 1]
+Figure 13: Non-curated unconditional ImageNet-128 generated images of a CNF trained with FM- OT.
+
+===== PDF PAGE 25 | text =====
+
+[BLOCK 1]
+Figure 14: Conditional generation 64×64→256×256. Flow Matching OT upsampled images from validation set.
+
+===== PDF PAGE 26 | text =====
+
+[BLOCK 1]
+Figure 15: Conditional generation 64×64→256×256. Flow Matching OT upsampled images from validation set.
+
+===== PDF PAGE 27 | text =====
+
+[BLOCK 1]
+NFE=10
+
+[BLOCK 2]
+NFE=20
+
+[BLOCK 3]
+NFE=40
+
+[BLOCK 4]
+NFE=100
+
+[BLOCK 5]
+NFE=10
+
+[BLOCK 6]
+NFE=20
+
+[BLOCK 7]
+NFE=40
+
+[BLOCK 8]
+NFE=100
+
+[BLOCK 9]
+Figure 16: Generated samples from the same initial noise, but with varying number of function evaluations (NFE). Flow matching with OT path trained on ImageNet-128.
+
+===== PDF PAGE 28 | text =====
+
+[BLOCK 1]
+NFE=40
+
+[BLOCK 2]
+NFE=10
+
+[BLOCK 3]
+NFE=20
+
+[BLOCK 4]
+NFE=60
+
+[BLOCK 5]
+NFE=100
+
+[BLOCK 6]
+Figure 17: Generated samples from the same initial noise, but with varying number of function evaluations (NFE). Flow matching with OT path trained on ImageNet 256×256.
+
+===== INDEXED SENTENCES =====
+
+[P35-S00001] PDF pages [1]
+We introduce a new paradigm for generative modeling built on Continuous Normalizing Flows (CNFs), allowing us to train CNFs at unprecedented scale.
+
+[P35-S00002] PDF pages [1]
+Specifically, we present the notion of Flow Matching (FM), a simulation-free approach for training CNFs based on regressing vector fields of fixed conditional probability paths.
+
+[P35-S00003] PDF pages [1]
+Flow Matching is compatible with a general family of Gaussian probability paths for transforming between noise and data samples-which subsumes existing diffusion paths as specific instances.
+
+[P35-S00004] PDF pages [1]
+Interestingly, we find that employing FM with diffusion paths results in a more robust and stable alternative for training diffusion models.
+
+[P35-S00005] PDF pages [1]
+Furthermore, Flow Matching opens the door to training CNFs with other, non-diffusion probability paths.
+
+[P35-S00006] PDF pages [1]
+An instance of particular interest is using Optimal Transport (OT) displacement interpolation to define the conditional probability paths.
+
+[P35-S00007] PDF pages [1]
+These paths are more efficient than diffusion paths, provide faster training and sampling, and result in better generalization.
+
+[P35-S00008] PDF pages [1]
+Training CNFs using Flow Matching on ImageNet leads to consistently better performance than alternative diffusion-based methods in terms of both likelihood and sample quality, and allows fast and reliable sample generation using off-the-shelf numerical ODE solvers.
+
+[P35-S00009] PDF pages [1]
+Deep generative models are a class of deep learning algorithms aimed at estimating and sampling from an unknown data distribution.
+
+[P35-S00010] PDF pages [1]
+The recent influx of amazing advances in generative modeling, e.g., for image generation Ramesh et al. (2022); Rombach et al. (2022), is mostly facilitated by the scalable and relatively stable training of diffusion-based models Ho et al. (2020); Song et al. (2020b).
+
+[P35-S00011] PDF pages [1]
+However, the restriction to simple diffusion processes leads to a rather confined space of sampling probability paths, resulting in very long training times and the need to adopt specialized methods (e.g., Song et al. (2020a); Zhang & Chen (2022)) for efficient sampling.
+
+[P35-S00012] PDF pages [1]
+In this work we consider the general and deterministic framework of Continuous Normalizing Flows (CNFs; Chen et al. (2018)).
+
+[P35-S00013] PDF pages [1]
+CNFs are capable of modeling arbitrary probability path and are in particular known to encompass the probability paths modeled by diffusion processes (Song et al., 2021).
+
+[P35-S00014] PDF pages [1]
+However, aside from diffusion that can be trained efficiently via, e.g., denoising score matching (Vincent, 2011), no scalable CNF training algorithms are known.
+
+[P35-S00015] PDF pages [1]
+Indeed, maximum likelihood training (e.g., Grathwohl et al. (2018)) re-quire expensive numerical ODE simulations, while existing simulation-free methods either involve in-tractable integrals (Rozen et al., 2021) or biased gradients (Ben-Hamu et al., 2022).
+
+[P35-S00016] PDF pages [1]
+The goal of this work is to propose Flow Matching (FM), an efficient simulation-free approach to training CNF models, allowing the adoption of general probability paths to supervise CNF training.
+
+[P35-S00017] PDF pages [1]
+Importantly, FM breaks the barriers for scalable CNF training beyond diffusion, and sidesteps the need to reason about diffusion processes to directly work with probability paths.
+
+[P35-S00018] PDF pages [2]
+In particular, we propose the Flow Matching objective (Section 3), a simple and intuitive training objective to regress onto a target vector field that generates a desired probability path.
+
+[P35-S00019] PDF pages [2]
+We first show that we can construct such target vector fields through per-example (i.e., conditional) formulations.
+
+[P35-S00020] PDF pages [2]
+Then, inspired by denoising score matching, we show that a per-example training objective, termed Conditional Flow Matching (CFM), provides equivalent gradients and does not require explicit knowledge of the intractable target vector field.
+
+[P35-S00021] PDF pages [2]
+Furthermore, we discuss a general family of per-example probability paths (Section 4) that can be used for Flow Matching, which subsumes existing diffusion paths as special instances.
+
+[P35-S00022] PDF pages [2]
+Even on diffusion paths, we find that using FM provides more robust and stable training, and achieves superior performance compared to score matching.
+
+[P35-S00023] PDF pages [2]
+Furthermore, this family of probability paths also includes a particularly interesting case: the vector field that corresponds to an Optimal Transport (OT) displacement interpolant (McCann, 1997).
+
+[P35-S00024] PDF pages [2]
+We find that conditional OT paths are simpler than diffusion paths, forming straight line trajectories whereas diffusion paths result in curved paths.
+
+[P35-S00025] PDF pages [2]
+These properties seem to empirically translate to faster training, faster generation, and better performance.
+
+[P35-S00026] PDF pages [2]
+We empirically validate Flow Matching and the construction via Optimal Transport paths on ImageNet, a large and highly diverse image dataset.
+
+[P35-S00027] PDF pages [2]
+We find that we can easily train models to achieve favorable performance in both likelihood estimation and sample quality amongst competing diffusion-based methods.
+
+[P35-S00028] PDF pages [2]
+Furthermore, we find that our models produce better trade-offs between computational cost and sample quality compared to prior methods.
+
+[P35-S00029] PDF pages [2]
+Let Rd denote the data space with data points x = (x1, .
+
+[P35-S00030] PDF pages [2]
+Previously, Chen et al. (2018) suggested modeling the vector field vt with a neural network, vt(x; θ), where θ ∈Rp are its learnable parameters, which in turn leads to a deep parametric model of the flow φt, called a Continuous Normalizing Flow (CNF).
+
+[P35-S00031] PDF pages [2]
+A vector field vt is said to generate a probability density path pt if its flow φt satisfies equation 3.
+
+[P35-S00032] PDF pages [2]
+One practical way to test if a vector field generates a probability path is using the continuity equation, which is a key component in our proofs, see Appendix B.
+
+[P35-S00033] PDF pages [2]
+We recap more information on CNFs, in particular how to compute the probability p1(x) at an arbitrary point x ∈Rd in Appendix C.
+
+[P35-S00034] PDF pages [2]
+Let x1 denote a random variable distributed according to some unknown data distribution q(x1).
+
+[P35-S00035] PDF pages [2]
+We assume we only have access to data samples from q(x1) but have no access to the density function itself.
+
+[P35-S00036] PDF pages [2]
+Furthermore, we let pt be a probability path such that p0 = p is a simple distribution, e.g., the standard normal distribution p(x) = N(x|0, I), and let p1 be approximately equal in distribution to q.
+
+[P35-S00037] PDF pages [2]
+We will later discuss how to construct such a path.
+
+[P35-S00038] PDF pages [2]
+The Flow Matching objective is then designed to match this target probability path, which will allow us to flow from p0 to p1.
+
+[P35-S00039] PDF pages [3]
+Simply put, the FM loss regresses the vector field ut with a neural network vt.
+
+[P35-S00040] PDF pages [3]
+Upon reaching zero loss, the learned CNF model will generate pt(x).
+
+[P35-S00041] PDF pages [3]
+Flow Matching is a simple and attractive objective, but na ̈ıvely on its own, it is intractable to use in practice since we have no prior knowledge for what an appropriate pt and ut are.
+
+[P35-S00042] PDF pages [3]
+There are many choices of probability paths that can satisfy p1(x) ≈q(x), and more importantly, we generally don't have access to a closed form ut that generates the desired pt.
+
+[P35-S00043] PDF pages [3]
+In this section, we show that we can construct both pt and ut using probability paths and vector fields that are only defined per sample, and an appropriate method of aggregation provides the desired pt and ut.
+
+[P35-S00044] PDF pages [3]
+Furthermore, this construction allows us to create a much more tractable objective for Flow Matching.
+
+[P35-S00045] PDF pages [3]
+It may not seem apparent, but this way of aggregating the conditional vector fields actually results in the correct vector field for modeling the marginal probability path.
+
+[P35-S00046] PDF pages [3]
+The marginal vector field (equation 8) generates the marginal probability path (equation 6).
+
+[P35-S00047] PDF pages [3]
+This provides a surprising connection between the conditional VFs (those that generate conditional probability paths) and the marginal VF (those that generate the marginal probability path).
+
+[P35-S00048] PDF pages [3]
+This connection allows us to break down the unknown and intractable marginal VF into simpler conditional VFs, which are much simpler to define as these only depend on a single data sample.
+
+[P35-S00049] PDF pages [3]
+We formalize this in the following theorem.
+
+[P35-S00050] PDF pages [3]
+Given vector fields ut(x|x1) that generate conditional probability paths pt(x|x1), for any distribution q(x1), the marginal vector field ut in equation 8 generates the marginal probability path pt in equation 6, i.e., ut and pt satisfy the continuity equation (equation 26).
+
+[P35-S00051] PDF pages [3]
+The full proofs for our theorems are all provided in Appendix A. Theorem 1 can also be derived from the Diffusion Mixture Representation Theorem in Peluchetti (2021) that provides a formula for the marginal drift and diffusion coefficients in diffusion SDEs.
+
+[P35-S00052] PDF pages [4]
+Unfortunately, due to the intractable integrals in the definitions of the marginal probability path and VF (equations 6 and 8), it is still intractable to compute ut, and consequently, intractable to na ̈ıvely compute an unbiased estimator of the original Flow Matching objective.
+
+[P35-S00053] PDF pages [4]
+Instead, we propose a simpler objective, which surprisingly will result in the same optima as the original objective.
+
+[P35-S00054] PDF pages [4]
+Unlike the FM objective, the CFM objective allows us to easily sample unbiased estimates as long as we can efficiently sample from pt(x|x1) and compute ut(x|x1), both of which can be easily done as they are defined on a per-sample basis.
+
+[P35-S00055] PDF pages [4]
+Our second key observation is therefore: The FM (equation 5) and CFM (equation 9) objectives have identical gradients w.r.t.
+
+[P35-S00056] PDF pages [4]
+That is, optimizing the CFM objective is equivalent (in expectation) to optimizing the FM objective.
+
+[P35-S00057] PDF pages [4]
+Consequently, this allows us to train a CNF to generate the marginal probability path pt-which in particular, approximates the unknown data distribution q at t=1- without ever needing access to either the marginal probability path or the marginal vector field.
+
+[P35-S00058] PDF pages [4]
+We simply need to design suitable conditional probability paths and vector fields.
+
+[P35-S00059] PDF pages [4]
+We formalize this property in the following theorem.
+
+[P35-S00060] PDF pages [4]
+Assuming that pt(x) > 0 for all x ∈Rd and t ∈[0, 1], then, up to a constant independent of θ, LCFM and LFM are equal.
+
+[P35-S00061] PDF pages [4]
+The Conditional Flow Matching objective works with any choice of conditional probability path and conditional vector fields.
+
+[P35-S00062] PDF pages [4]
+In this section, we discuss the construction of pt(x|x1) and ut(x|x1) for a general family of Gaussian conditional probability paths.
+
+[P35-S00063] PDF pages [4]
+Namely, we consider conditional probability paths of the form pt(x|x1) = N(x | μt(x1), σt(x1)2I), (10) where μ : [0, 1] × Rd →Rd is the time-dependent mean of the Gaussian distribution, while σ : [0, 1] × R →R>0 describes a time-dependent scalar standard deviation (std).
+
+[P35-S00064] PDF pages [4]
+We set μ0(x1) = 0 and σ0(x1) = 1, so that all conditional probability paths converge to the same standard Gaussian noise distribution at t = 0, p(x) = N(x|0, I).
+
+[P35-S00065] PDF pages [4]
+We then set μ1(x1) = x1 and σ1(x1) = σmin, which is set sufficiently small so that p1(x|x1) is a concentrated Gaussian distribution centered at x1.
+
+[P35-S00066] PDF pages [4]
+There is an infinite number of vector fields that generate any particular probability path (e.g., by adding a divergence free component to the continuity equation, see equation 26), but the vast majority of these is due to the presence of components that leave the underlying distribution invariant-for instance, rotational components when the distribution is rotation-invariant-leading to unnecessary extra compute.
+
+[P35-S00067] PDF pages [4]
+We decide to use the simplest vector field corresponding to a canonical transformation for Gaussian distributions.
+
+[P35-S00068] PDF pages [4]
+Specifically, consider the flow (conditioned on x1) ψt(x) = σt(x1)x + μt(x1).
+
+[P35-S00069] PDF pages [4]
+Since ψt is a simple (invertible) affine map we can use equation 13 to solve for ut in a closed form.
+
+[P35-S00070] PDF pages [4]
+Let f ′ denote the derivative with respect to time, i.e., f ′ = d dtf, for a time-dependent function f.
+
+[P35-S00071] PDF pages [5]
+Let pt(x|x1) be a Gaussian probability path as in equation 10, and ψt its corresponding flow map as in equation 11.
+
+[P35-S00072] PDF pages [5]
+Consequently, ut(x|x1) generates the Gaussian path pt(x|x1).
+
+[P35-S00073] PDF pages [5]
+Our formulation is fully general for arbitrary functions μt(x1) and σt(x1), and we can set them to any differentiable function satisfying the desired boundary conditions.
+
+[P35-S00074] PDF pages [5]
+We first discuss the special cases that recover probability paths corresponding to previously-used diffusion processes.
+
+[P35-S00075] PDF pages [5]
+Since we directly work with probability paths, we can simply depart from reasoning about diffusion processes altogether.
+
+[P35-S00076] PDF pages [5]
+Therefore, in the second example below, we directly formulate a probability path based on the Wasserstein-2 optimal transport solution as an interesting instance.
+
+[P35-S00077] PDF pages [5]
+Diffusion models start with data points and gradually add noise until it approximates pure noise.
+
+[P35-S00078] PDF pages [5]
+These can be formulated as stochastic processes, which have strict requirements in order to obtain closed form representation at arbitrary times t, resulting in Gaussian conditional probability paths pt(x|x1) with specific choices of mean μt(x1) and std σt(x1) (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song et al., 2020b).
+
+[P35-S00079] PDF pages [5]
+Our construction of the conditional VF ut(x|x1) does in fact coincide with the vector field previously used in the deterministic probability flow (Song et al. (2020b), equation 13) when restricted to these conditional diffusion processes; see details in Appendix D. Nevertheless, combining the diffusion conditional VF with the Flow Matching objective offers an attractive training alternative-which we find to be more stable and robust in our experiments-to existing score matching approaches.
+
+[P35-S00080] PDF pages [5]
+Another important observation is that, as these probability paths were previously derived as solutions of diffusion processes, they do not actually reach a true noise distribution in finite time.
+
+[P35-S00081] PDF pages [5]
+In practice, p0(x) is simply approximated by a suitable Gaussian distribution for sampling and likelihood evaluation.
+
+[P35-S00082] PDF pages [5]
+Instead, our construction provides full control over the probability path, and we can just directly set μt and σt, as we will do next.
+
+[P35-S00083] PDF pages [5]
+Example II: Optimal Transport conditional VFs.
+
+[P35-S00084] PDF pages [6]
+Note the blue color denotes larger magnitude while red color denotes smaller magnitude.
+
+[P35-S00085] PDF pages [6]
+Allowing the mean and std to change linearly not only leads to simple and intuitive paths, but it is actually also optimal in the following sense.
+
+[P35-S00086] PDF pages [6]
+The conditional flow ψt(x) is in fact the Optimal Transport (OT) displacement map between the two Gaussians p0(x|x1) and p1(x|x1).
+
+[P35-S00087] PDF pages [6]
+Example 1.7 in McCann (1997) shows, that in our case of two Gaussians where the first is a standard one, the OT displacement map takes the form of equation 22.
+
+[P35-S00088] PDF pages [6]
+Intuitively, particles under the OT displacement map always move in straight line trajectories and with constant speed.
+
+[P35-S00089] PDF pages [6]
+Interestingly, we find that sampling trajectory from diffusion paths can “overshoot” the final sample, resulting in unnecessary backtracking, whilst the OT paths are guaranteed to stay straight.
+
+[P35-S00090] PDF pages [6]
+The start (p0) and end (p1) Gaussians are identical in both examples.
+
+[P35-S00091] PDF pages [6]
+An interesting observation is that the OT VF has a constant direction in time, which arguably leads to a simpler regression task.
+
+[P35-S00092] PDF pages [6]
+This property can also be verified directly from equation 21 as the VF can be written in the form ut(x|x1) = g(t)h(x|x1).
+
+[P35-S00093] PDF pages [6]
+Lastly, we note that although the conditional flow is optimal, this by no means imply that the marginal VF is an optimal transport solution.
+
+[P35-S00094] PDF pages [6]
+Nevertheless, we expect the marginal vector field to remain relatively simple.
+
+[P35-S00095] PDF pages [6]
+Continuous Normalizing Flows were introduced in (Chen et al., 2018) as a continuous-time version of Normalizing Flows (see e.g., Kobyzev et al. (2020); Papamakarios et al. (2021) for an overview).
+
+[P35-S00096] PDF pages [6]
+Originally, CNFs are trained with the maximum likelihood objective, but this involves expensive ODE simulations for the forward and backward propagation, resulting in high time complexity due to the sequential nature of ODE simulations.
+
+[P35-S00097] PDF pages [6]
+Although some works demonstrated the capability of CNF generative models for image synthesis (Grathwohl et al., 2018), scaling up to very high dimensional images is inherently difficult.
+
+[P35-S00098] PDF pages [6]
+A number of works attempted to regularize the ODE to be easier to solve, e.g., using augmentation (Dupont et al., 2019), adding regularization terms (Yang & Karniadakis, 2019; Finlay et al., 2020; Onken et al., 2021; Tong et al., 2020; Kelly et al., 2020), or stochastically sampling the integration interval (Du et al., 2022).
+
+[P35-S00099] PDF pages [6]
+These works merely aim to regularize the ODE but do not change the fundamental training algorithm.
+
+[P35-S00100] PDF pages [7]
+The OT path introduces the checkerboard pattern much earlier, while FM results in more stable training.
+
+[P35-S00101] PDF pages [7]
+In order to speed up CNF training, some works have developed simulation-free CNF training frameworks by explicitly designing the target probability path and the dynamics.
+
+[P35-S00102] PDF pages [7]
+For instance, Rozen et al. (2021) consider a linear interpolation between the prior and the target density but involves integrals that were difficult to estimate in high dimensions, while Ben-Hamu et al. (2022) consider general probability paths similar to this work but suffers from biased gradients in the stochastic minibatch regime.
+
+[P35-S00103] PDF pages [7]
+In contrast, the Flow Matching framework allows simulation-free training with unbiased gradients and readily scales to very high dimensions.
+
+[P35-S00104] PDF pages [7]
+Another approach to simulation-free training relies on the construction of a diffusion process to indirectly define the target probability path (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song & Ermon, 2019).
+
+[P35-S00105] PDF pages [7]
+Song et al. (2020b) shows that diffusion models are trained using denoising score matching (Vincent, 2011), a conditional objective that provides unbiased gradients with respect to the score matching objective.
+
+[P35-S00106] PDF pages [7]
+Conditional Flow Matching draws inspiration from this result, but generalizes to matching vector fields directly.
+
+[P35-S00107] PDF pages [7]
+Due to the ease of scalability, diffusion models have received increased attention, producing a variety of improvements such as loss-rescaling (Song et al., 2021), adding classifier guidance along with architectural improvements (Dhariwal & Nichol, 2021), and learning the noise schedule (Nichol & Dhariwal, 2021; Kingma et al., 2021).
+
+[P35-S00108] PDF pages [7]
+However, (Nichol & Dhariwal, 2021) and (Kingma et al., 2021) only consider a restricted setting of Gaussian conditional paths defined by simple diffusion processes with a single parameter-in particular, it does not include our conditional OT path.
+
+[P35-S00109] PDF pages [7]
+In an another line of works, (De Bortoli et al., 2021; Wang et al., 2021; Peluchetti, 2021) proposed finite time diffusion constructions via diffusion bridges theory resolving the approximation error incurred by infinite time denoising constructions.
+
+[P35-S00110] PDF pages [7]
+While existing works make use of a connection between diffusion processes and continuous normalizing flows with the same probability path (Maoutsa et al., 2020b; Song et al., 2020b; 2021), our work allows us to generalize beyond the class of probability paths modeled by simple diffusion.
+
+[P35-S00111] PDF pages [7]
+With our work, it is possible to completely sidestep the diffusion process construction and reason directly with probability paths, while still retaining efficient training and log-likelihood evaluations.
+
+[P35-S00112] PDF pages [7]
+Lastly, concurrently to our work (Liu et al., 2022; Albergo & Vanden-Eijnden, 2022) arrived at similar conditional objectives for simulation-free training of CNFs, while Neklyudov et al. (2023) derived an implicit objective when ut is assumed to be a gradient field.
+
+[P35-S00113] PDF pages [7]
+We explore the empirical benefits of using Flow Matching on the image datasets of CIFAR- 10 (Krizhevsky et al., 2009) and ImageNet at resolutions 32, 64, and 128 (Chrabaszcz et al., 2017; Deng et al., 2009).
+
+[P35-S00114] PDF pages [7]
+We also ablate the choice of diffusion path in Flow Matching, particularly between the standard variance preserving diffusion path and the optimal transport path.
+
+[P35-S00115] PDF pages [7]
+We discuss how sample generation is improved by directly parameterizing the generating vector field and using the Flow Matching objective.
+
+[P35-S00116] PDF pages [7]
+Lastly we show Flow Matching can also be used in the conditional generation setting.
+
+[P35-S00117] PDF pages [7]
+Unless otherwise specified, we evaluate likelihood and samples from the model using dopri5 (Dormand & Prince, 1980) at absolute and relative tolerances of 1e-5.
+
+[P35-S00118] PDF pages [7]
+Generated samples can be found in the Appendix, and all implementation details are in Appendix E.
+
+[P35-S00119] PDF pages [8]
+The OT path reduces noise roughly linearly, while diffusion paths visibly remove noise only towards the end of the path.
+
+[P35-S00120] PDF pages [8]
+Note also the differences between the generated images.
+
+[P35-S00121] PDF pages [8]
+We start by comparing the same model architecture, i.e., the U-Net architecture from Dhariwal & Nichol (2021) with minimal changes, trained on CIFAR-10, and ImageNet 32/64 with different popular diffusion-based losses: DDPM from (Ho et al., 2020), Score Matching (SM) (Song et al., 2020b), and Score Flow (SF) (Song et al., 2021); see Appendix E.1 for exact details.
+
+[P35-S00122] PDF pages [8]
+All models are trained using the same architecture, hyperparameter values and number of training iterations, where baselines are allowed more iterations for better convergence.
+
+[P35-S00123] PDF pages [8]
+Note that these are unconditional models.
+
+[P35-S00124] PDF pages [8]
+On both CIFAR-10 and ImageNet, FM-OT consistently obtains best results across all our quantitative measures compared to competing methods.
+
+[P35-S00125] PDF pages [8]
+We are noticing a higher that usual FID performance in CIFAR-10 compared to previous works (Ho et al., 2020; Song et al., 2020b; 2021) that can possibly be explained by the fact that our used architecture was not optimized for CIFAR-10.
+
+[P35-S00126] PDF pages [8]
+Secondly, Table 1 (right) compares a model trained using Flow Matching with the OT path on ImageNet at resolution 128×128.
+
+[P35-S00127] PDF pages [8]
+Our FID is state-of-the-art with the exception of IC-GAN (Casanova et al., 2021) which uses conditioning with a self-supervised ResNet50 model, and therefore is left out of this table.
+
+[P35-S00128] PDF pages [8]
+Figures 11, 12, 13 in the Appendix show non-curated samples from these models.
+
+[P35-S00129] PDF pages [8]
+While existing works train diffusion models with a very high number of iterations (e.g., 1.3m and 10m iterations are reported by Score Flow and VDM, respectively), we find that Flow Matching generally converges much faster.
+
+[P35-S00130] PDF pages [8]
+For ImageNet-128 Dhariwal & Nichol (2021) train for 4.36m iterations with batch size 256, while FM (with 25% larger model) used 500k iterations with batch size 1.5k, i.e., 33% less image throughput; see Table 3 for exact details.
+
+[P35-S00131] PDF pages [8]
+Furthermore, the cost of sampling from a model can drastically change during training for score matching, whereas the sampling cost stays constant when training with Flow Matching (Figure 10 in Appendix).
+
+[P35-S00132] PDF pages [8]
+For sampling, we first draw a random noise sample x0 ∼N(0, I) then compute φ1(x0) by solving equation 1 with the trained VF, vt, on the interval t ∈[0, 1] using an ODE solver.
+
+[P35-S00133] PDF pages [9]
+Error of ODE solution Flow matching w/ OT Flow matching w/ Diffusion Score matching w/ Diffusion Figure 7: Flow Matching, especially when using OT paths, allows us to use fewer evaluations for sampling while retaining similar numerical error (left) and sample quality (right).
+
+[P35-S00134] PDF pages [9]
+Results are shown for models trained on ImageNet 32×32, and numerical errors are for the midpoint scheme.
+
+[P35-S00135] PDF pages [9]
+In part, this is due to ODE solvers being much more efficient-yielding lower error at similar computational costs (Kloeden et al., 2012)-and the multitude of available ODE solver schemes.
+
+[P35-S00136] PDF pages [9]
+When compared to our ablation models, we find that models trained using Flow Matching with the OT path always result in the most efficient sampler, regardless of ODE solver, as demonstrated next.
+
+[P35-S00137] PDF pages [9]
+We first qualitatively visualize the difference in sampling paths between diffusion and OT.
+
+[P35-S00138] PDF pages [9]
+We additionally depict the probability density paths in 2D generation of a checkerboard pattern, Figure 4 (left), noticing a similar trend.
+
+[P35-S00139] PDF pages [9]
+We next switch to fixed-step solvers and compare low (≤100) NFE samples computed with the ImageNet-32 models from Table 1.
+
+[P35-S00140] PDF pages [9]
+In Figure 7 (left), we compare the per-pixel MSE of low NFE solutions compared with 1000 NFE solutions (we use 256 random noise seeds), and notice that the FM with OT model produces the best numerical error, in terms of computational cost, requiring roughly only 60% of the NFEs to reach the same error threshold as diffusion models.
+
+[P35-S00141] PDF pages [9]
+Secondly, Figure 7 (right) shows how FID changes as a result of the computational cost, where we find FM with OT is able to achieve decent FID even at very low NFE values, producing better tradeoff between sample quality and cost compared to ablated models.
+
+[P35-S00142] PDF pages [9]
+Lastly, we experimented with Flow Matching for conditional image generation.
+
+[P35-S00143] PDF pages [9]
+We follow the evaluation procedure in (Saharia et al., 2022) and compute the FID of the upsampled validation images; baselines include reference (FID of original validation set), and regression.
+
+[P35-S00144] PDF pages [9]
+Upsampled image samples are shown in Figures 14, 15 in the Appendix.
+
+[P35-S00145] PDF pages [9]
+FM-OT achieves similar PSNR and SSIM values to (Saharia et al., 2022) while considerably improving on FID and IS, which as argued by (Saharia et al., 2022) is a better indication of generation quality.
+
+[P35-S00146] PDF pages [9]
+We introduced Flow Matching, a new simulation-free framework for training Continuous Normalizing Flow models, relying on conditional constructions to effortlessly scale to very high dimensions.
+
+[P35-S00147] PDF pages [9]
+Furthermore, the FM framework provides an alternative view on diffusion models, and suggests forsaking the stochastic/diffusion construction in favor of more directly specifying the probability path, allowing us to, e.g., construct paths that allow faster sampling and/or improve generation.
+
+[P35-S00148] PDF pages [9]
+We experimentally showed the ease of training and sampling when using the Flow Matching framework, and in the future, we expect FM to open the door to allowing a multitude of probability paths (e.g., non-isotropic Gaussians or more general kernels altogether).
+
+[P35-S00149] PDF pages [10]
+Along side its many positive applications, image generation can also be used for harmful proposes.
+
+[P35-S00150] PDF pages [10]
+Using content-controlled training sets and image validation/classification can help reduce these uses.
+
+[P35-S00151] PDF pages [10]
+Furthermore, the energy demand for training large deep learning models is increasing at a rapid pace (Amodei et al., 2018; Thompson et al., 2020), focusing on methods that are able to train using less gradient updates / image throughput can lead to significant time and energy savings.
+
+[P35-S00152] PDF pages [10]
+Michael S Albergo and Eric Vanden-Eijnden.
+
+[P35-S00153] PDF pages [10]
+Mohammadreza Armandpour, Ali Sadeghian, Chunyuan Li, and Mingyuan Zhou.
+
+[P35-S00154] PDF pages [10]
+In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp.
+
+[P35-S00155] PDF pages [10]
+Heli Ben-Hamu, Samuel Cohen, Joey Bose, Brandon Amos, Aditya Grover, Maximilian Nickel, Ricky T. Q. Chen, and Yaron Lipman.
+
+[P35-S00156] PDF pages [10]
+Matching normalizing flows and probability paths on manifolds.
+
+[P35-S00157] PDF pages [10]
+Arantxa Casanova, Marlene Careil, Jakob Verbeek, Michal Drozdzal, and Adriana Romero Soriano.
+
+[P35-S00158] PDF pages [10]
+Ricky T. Q. Chen, Yulia Rubanova, Jesse Bettencourt, and David K Duvenaud.
+
+[P35-S00159] PDF pages [10]
+Advances in neural information processing systems, 31, 2018.
+
+[P35-S00160] PDF pages [10]
+Patryk Chrabaszcz, Ilya Loshchilov, and Frank Hutter.
+
+[P35-S00161] PDF pages [10]
+A downsampled variant of imagenet as an alternative to the cifar datasets.
+
+[P35-S00162] PDF pages [10]
+Valentin De Bortoli, James Thornton, Jeremy Heng, and Arnaud Doucet.
+
+[P35-S00163] PDF pages [10]
+Diffusion schr ̈odinger bridge with applications to score-based generative modeling.
+
+[P35-S00164] PDF pages [10]
+Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei.
+
+[P35-S00165] PDF pages [10]
+Imagenet: A large-scale hier- archical image database.
+
+[P35-S00166] PDF pages [10]
+In 2009 IEEE Conference on Computer Vision and Pattern Recognition, pp.
+
+[P35-S00167] PDF pages [10]
+Prafulla Dhariwal and Alexander Quinn Nichol.
+
+[P35-S00168] PDF pages [10]
+Diffusion models beat GANs on image synthesis.
+
+[P35-S00169] PDF pages [10]
+In A. Beygelzimer, Y. Dauphin, P. Liang, and J. Wortman Vaughan (eds.
+
+[P35-S00170] PDF pages [10]
+A family of embedded runge-kutta formulae.
+
+[P35-S00171] PDF pages [10]
+Shian Du, Yihong Luo, Wei Chen, Jian Xu, and Delu Zeng.
+
+[P35-S00172] PDF pages [10]
+To-flow: Efficient continuous nor- malizing flows with temporal optimization adjoint with moving speed, 2022.
+
+[P35-S00173] PDF pages [10]
+Emilien Dupont, Arnaud Doucet, and Yee Whye Teh.
+
+[P35-S00174] PDF pages [10]
+In H. Wallach, H. Larochelle, A. Beygelzimer, F. d ́ Alch ́e-Buc, E. Fox, and R. Garnett (eds.
+
+[P35-S00175] PDF pages [11]
+Chris Finlay, J ̈orn-Henrik Jacobsen, Levon Nurbekyan, and Adam M. Oberman.
+
+[P35-S00176] PDF pages [11]
+How to train your neural ode: the world of jacobian and kinetic regularization.
+
+[P35-S00177] PDF pages [11]
+Will Grathwohl, Ricky T. Q. Chen, Jesse Bettencourt, Ilya Sutskever, and David Duvenaud.
+
+[P35-S00178] PDF pages [11]
+Ffjord: Free-form continuous dynamics for scalable reversible generative models, 2018.
+
+[P35-S00179] PDF pages [11]
+Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter.
+
+[P35-S00180] PDF pages [11]
+Gans trained by a two time-scale update rule converge to a local nash equilibrium.
+
+[P35-S00181] PDF pages [11]
+Advances in neural information processing systems, 30, 2017.
+
+[P35-S00182] PDF pages [11]
+Jonathan Ho, Ajay Jain, and Pieter Abbeel.
+
+[P35-S00183] PDF pages [11]
+Quan Hoang, Tu Dinh Nguyen, Trung Le, and Dinh Phung.
+
+[P35-S00184] PDF pages [11]
+Mgan: Training generative adversarial nets with multiple generators.
+
+[P35-S00185] PDF pages [11]
+In International conference on learning representations, 2018.
+
+[P35-S00186] PDF pages [11]
+Jacob Kelly, Jesse Bettencourt, Matthew J Johnson, and David K Duvenaud.
+
+[P35-S00187] PDF pages [11]
+Learning differential equations that are easy to solve.
+
+[P35-S00188] PDF pages [11]
+Diederik P Kingma, Tim Salimans, Ben Poole, and Jonathan Ho.
+
+[P35-S00189] PDF pages [11]
+In A. Beygelzimer, Y. Dauphin, P. Liang, and J. Wortman Vaughan (eds.
+
+[P35-S00190] PDF pages [11]
+Peter Eris Kloeden, Eckhard Platen, and Henri Schurz.
+
+[P35-S00191] PDF pages [11]
+Numerical solution of SDE through computer experiments.
+
+[P35-S00192] PDF pages [11]
+Ivan Kobyzev, Simon JD Prince, and Marcus A Brubaker.
+
+[P35-S00193] PDF pages [11]
+Normalizing flows: An introduction and review of current methods.
+
+[P35-S00194] PDF pages [11]
+IEEE transactions on pattern analysis and machine intelligence, 43 (11):3964-3979, 2020.
+
+[P35-S00195] PDF pages [11]
+Alex Krizhevsky, Geoffrey Hinton, et al. Learning multiple layers of features from tiny images.
+
+[P35-S00196] PDF pages [11]
+Zinan Lin, Ashish Khetan, Giulia Fanti, and Sewoong Oh.
+
+[P35-S00197] PDF pages [11]
+Pacgan: The power of two samples in generative adversarial networks.
+
+[P35-S00198] PDF pages [11]
+Advances in neural information processing systems, 31, 2018.
+
+[P35-S00199] PDF pages [11]
+Xingchao Liu, Chengyue Gong, and Qiang Liu.
+
+[P35-S00200] PDF pages [11]
+Flow straight and fast: Learning to generate and transfer data with rectified flow.
+
+[P35-S00201] PDF pages [11]
+Mario Luˇci ́c, Michael Tschannen, Marvin Ritter, Xiaohua Zhai, Olivier Bachem, and Sylvain Gelly.
+
+[P35-S00202] PDF pages [11]
+High-fidelity image generation with fewer labels.
+
+[P35-S00203] PDF pages [11]
+In International conference on machine learning, pp.
+
+[P35-S00204] PDF pages [11]
+Dimitra Maoutsa, Sebastian Reich, and Manfred Opper.
+
+[P35-S00205] PDF pages [11]
+Interacting particle solutions of fokker-planck equations through gradient-log-density estimation.
+
+[P35-S00206] PDF pages [11]
+Dimitra Maoutsa, Sebastian Reich, and Manfred Opper.
+
+[P35-S00207] PDF pages [11]
+Interacting particle solutions of fokker- planck equations through gradient-log-density estimation.
+
+[P35-S00208] PDF pages [11]
+A convexity principle for interacting gases.
+
+[P35-S00209] PDF pages [11]
+Kirill Neklyudov, Daniel Severo, and Alireza Makhzani.
+
+[P35-S00210] PDF pages [11]
+Action matching: A variational method for learning stochastic dynamics from samples, 2023.
+
+[P35-S00211] PDF pages [11]
+Alexander Quinn Nichol and Prafulla Dhariwal.
+
+[P35-S00212] PDF pages [11]
+In International Conference on Machine Learning, pp.
+
+[P35-S00213] PDF pages [12]
+Derek Onken, Samy Wu Fung, Xingjian Li, and Lars Ruthotto.
+
+[P35-S00214] PDF pages [12]
+Ot-flow: Fast and accurate contin- uous normalizing flows via optimal transport.
+
+[P35-S00215] PDF pages [12]
+Proceedings of the AAAI Conference on Artificial Intelligence, 35(10):9223-9232, May 2021.
+
+[P35-S00216] PDF pages [12]
+George Papamakarios, Eric T Nalisnick, Danilo Jimenez Rezende, Shakir Mohamed, and Balaji Lakshminarayanan.
+
+[P35-S00217] PDF pages [12]
+Normalizing flows for probabilistic modeling and inference.
+
+[P35-S00218] PDF pages [12]
+Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen.
+
+[P35-S00219] PDF pages [12]
+Hierarchical text- conditional image generation with clip latents.
+
+[P35-S00220] PDF pages [12]
+Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bj ̈orn Ommer.
+
+[P35-S00221] PDF pages [12]
+High- resolution image synthesis with latent diffusion models.
+
+[P35-S00222] PDF pages [12]
+In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp.
+
+[P35-S00223] PDF pages [12]
+Noam Rozen, Aditya Grover, Maximilian Nickel, and Yaron Lipman.
+
+[P35-S00224] PDF pages [12]
+Moser flow: Divergence- based generative modeling on manifolds.
+
+[P35-S00225] PDF pages [12]
+In A. Beygelzimer, Y. Dauphin, P. Liang, and J. Wortman Vaughan (eds.
+
+[P35-S00226] PDF pages [12]
+Alexander Sage, Eirikur Agustsson, Radu Timofte, and Luc Van Gool.
+
+[P35-S00227] PDF pages [12]
+Logo synthesis and manipu- lation with clustered generative adversarial networks.
+
+[P35-S00228] PDF pages [12]
+In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp.
+
+[P35-S00229] PDF pages [12]
+Chitwan Saharia, Jonathan Ho, William Chan, Tim Salimans, David J Fleet, and Mohammad Norouzi.
+
+[P35-S00230] PDF pages [12]
+Image super-resolution via iterative refinement.
+
+[P35-S00231] PDF pages [12]
+IEEE Transactions on Pattern Analysis and Machine Intelligence, 2022.
+
+[P35-S00232] PDF pages [12]
+Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli.
+
+[P35-S00233] PDF pages [12]
+Deep unsupervised learning using nonequilibrium thermodynamics.
+
+[P35-S00234] PDF pages [12]
+In International Conference on Machine Learning, pp.
+
+[P35-S00235] PDF pages [12]
+Jiaming Song, Chenlin Meng, and Stefano Ermon.
+
+[P35-S00236] PDF pages [12]
+Generative modeling by estimating gradients of the data distri- bution.
+
+[P35-S00237] PDF pages [12]
+In H. Wallach, H. Larochelle, A. Beygelzimer, F. d ́ Alch ́e-Buc, E. Fox, and R. Garnett (eds.
+
+[P35-S00238] PDF pages [12]
+Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole.
+
+[P35-S00239] PDF pages [12]
+Score-based generative modeling through stochastic differential equations.
+
+[P35-S00240] PDF pages [12]
+Yang Song, Conor Durkan, Iain Murray, and Stefano Ermon.
+
+[P35-S00241] PDF pages [12]
+Maximum likelihood training of score- based diffusion models.
+
+[P35-S00242] PDF pages [12]
+In Thirty-Fifth Conference on Neural Information Processing Systems, 2021.
+
+[P35-S00243] PDF pages [12]
+Neil C Thompson, Kristjan Greenewald, Keeheon Lee, and Gabriel F Manso.
+
+[P35-S00244] PDF pages [12]
+The computational limits of deep learning.
+
+[P35-S00245] PDF pages [12]
+Alexander Tong, Jessie Huang, Guy Wolf, David Van Dijk, and Smita Krishnaswamy.
+
+[P35-S00246] PDF pages [12]
+Trajectorynet: A dynamic optimal transport network for modeling cellular dynamics.
+
+[P35-S00247] PDF pages [12]
+In International conference on machine learning, pp.
+
+[P35-S00248] PDF pages [12]
+Optimal transport: old and new, volume 338.
+
+[P35-S00249] PDF pages [12]
+A connection between score matching and denoising autoencoders.
+
+[P35-S00250] PDF pages [13]
+Gefei Wang, Yuling Jiao, Qian Xu, Yang Wang, and Can Yang.
+
+[P35-S00251] PDF pages [13]
+Deep generative learning via schr ̈odinger bridge.
+
+[P35-S00252] PDF pages [13]
+Potential flow generator with $l 2$ optimal transport regu- larity for generative models.
+
+[P35-S00253] PDF pages [13]
+Fast sampling of diffusion models with exponential integrator.
+
+[P35-S00254] PDF pages [14]
+Given vector fields ut(x|x1) that generate conditional probability paths pt(x|x1), for any distribution q(x1), the marginal vector field ut in equation 8 generates the marginal probability path pt in equation 6, i.e., ut and pt satisfy the continuity equation (equation 26).
+
+[P35-S00255] PDF pages [14]
+Furthermore, the first and third equalities are justified by assuming the integrands satisfy the regularity conditions of the Leibniz Rule (for exchanging integration and differentiation).
+
+[P35-S00256] PDF pages [14]
+Assuming that pt(x) > 0 for all x ∈Rd and t ∈[0, 1], then, up to a constant independent of θ, LCFM and LFM are equal.
+
+[P35-S00257] PDF pages [14]
+To ensure existence of all integrals and to allow the changing of integration order (by Fubini's Theorem) in the following we assume that q(x) and pt(x|x1) are decreasing to zero at a sufficient speed as ∥x∥→∞, and that ut, vt, ∇θvt are bounded.
+
+[P35-S00258] PDF pages [14]
+Let pt(x|x1) be a Gaussian probability path as in equation 10, and ψt its corresponding flow map as in equation 11.
+
+[P35-S00259] PDF pages [14]
+Consequently, ut(x|x1) generates the Gaussian path pt(x|x1).
+
+[P35-S00260] PDF pages [15]
+For notational simplicity let wt(x) = ut(x|x1).
+
+[P35-S00261] PDF pages [15]
+One method of testing if a vector field vt generates a probability path pt is the continuity equation (Villani, 2009).
+
+[P35-S00262] PDF pages [15]
+We are given an arbitrary data point x1 ∈Rd and need to compute the model probability at that point, i.e., p1(x1).
+
+[P35-S00263] PDF pages [15]
+Below we recap how this can be done covering the basic relevant ODEs, the scaling of the divergence computation, taking into account data transformations (e.g., centering of data), and Bits-Per-Dimension computation.
+
+[P35-S00264] PDF pages [15]
+ODE for computing p1(x1) The continuity equation with equation 1 lead to the instantaneous change of variable (Chen et al., 2018; Ben-Hamu et al., 2022): d dt log pt(φt(x)) + div(vt(φt(x)) = 0.
+
+[P35-S00265] PDF pages [16]
+Now, we are given an arbitrary x1 and want to compute p1(x1).
+
+[P35-S00266] PDF pages [16]
+For this end, we will need to solve equation 28 in reverse.
+
+[P35-S00267] PDF pages [16]
+From uniqueness of ODEs, the solution will be identical to the solution of equation 28 with initial conditions in equation 29 where c = log p0(x0) -log p1(x1).
+
+[P35-S00268] PDF pages [16]
+This can be seen from equation 30 and setting f(1) = 0.
+
+[P35-S00269] PDF pages [16]
+To summarize, to compute p1(x1) we first solve the ODE in equation 31 with initial conditions in equation 32, and the compute equation 33.
+
+[P35-S00270] PDF pages [16]
+Unbiased estimator to p1(x1) Solving equation 31 requires computation of div of VFs in Rd which is costly.
+
+[P35-S00271] PDF pages [16]
+To summarize, for a scalable unbiased estimation of p1(x1) we first solve the ODE in equation 34 with initial conditions in equation 32, and then output equation 35.
+
+[P35-S00272] PDF pages [17]
+Transformed data Often, before training our generative model we transform the data, e.g., we scale and/or translate the data.
+
+[P35-S00273] PDF pages [17]
+Averaging the unbiased estimator on a large test test x1 provides a good approximation to the test set BPD.
+
+[P35-S00274] PDF pages [17]
+We derive the vector field governing the Probability Flow ODE (equation 13 in Song et al. (2020b)) for the VE and VP diffusion paths (equation 18) and note that it coincides with the conditional vector fields we derive using Theorem 3, namely the vector fields defined in equations 16 and 19.
+
+[P35-S00275] PDF pages [17]
+We start with a short primer on how to find a conditional vector field for the probability path described by the Fokker-Planck equation, then instantiate it for the VE and VP probability paths.
+
+[P35-S00276] PDF pages [17]
+Since in the diffusion literature the diffusion process runs from data at time t = 0 to noise at time t = 1, we will need the following lemma to translate the diffusion VFs to our convention of t = 0 corresponds to noise and t = 1 corresponds to data: Lemma 1.
+
+[P35-S00277] PDF pages [17]
+Consider a flow defined by a vector field ut(x) generating probability density path pt(x).
+
+[P35-S00278] PDF pages [18]
+Conditional VFs for Fokker-Planck probability paths Consider a Stochastic Differential Equation (SDE) of the standard form dy = ftdt + gtdw (38) with time parameter t, drift ft, diffusion coefficient gt, and dw is the Wiener process.
+
+[P35-S00279] PDF pages [19]
+For the 2D example we used an MLP with 5-layers of 512 neurons each, while for images we used the UNet architecture from Dhariwal & Nichol (2021).
+
+[P35-S00280] PDF pages [19]
+For images, we center crop images and resize to the appropriate dimension, whereas for the 32×32 and 64×64 resolutions we use the same pre-processing as (Chrabaszcz et al., 2017).
+
+[P35-S00281] PDF pages [19]
+The three methods (FM-OT, FM-Diffusion, and SM- Diffusion) are always trained on the same architecture, same hyper-parameters, and for the same number of epochs.
+
+[P35-S00282] PDF pages [19]
+We consider three options as diffusion baselines that correspond to the most popular diffusion loss parametrizations (Song & Ermon, 2019; Song et al., 2021; Ho et al., 2020; Kingma et al., 2021).
+
+[P35-S00283] PDF pages [20]
+We report the hyper-parameters used in Table 3.
+
+[P35-S00284] PDF pages [20]
+We use full 32 bit-precision for training CIFAR10 and ImageNet-32 and 16-bit mixed precision for training ImageNet-64/128/256.
+
+[P35-S00285] PDF pages [20]
+All models are trained using the Adam optimizer with the following parameters: β1 = 0.9, β2 = 0.999, weight decay = 0.0, and ε = 1e-8.
+
+[P35-S00286] PDF pages [20]
+All methods we trained (i.e., FM-OT, FM-Diffusion, SM-Diffusion) using identical architectures, with the same parameters for the the same number of Epochs (see Table 3 for details).
+
+[P35-S00287] PDF pages [20]
+We use either a constant learning rate schedule or a polynomial decay schedule (see Table 3).
+
+[P35-S00288] PDF pages [20]
+The polynomial decay learning rate schedule includes a warm-up phase for a specified number of training steps.
+
+[P35-S00289] PDF pages [20]
+In the warm-up phase, the learning rate is linearly increased from 1e-8 to the peak learning rate (specified in Table 3).
+
+[P35-S00290] PDF pages [20]
+Once the peak learning rate is achieved, it linearly decays the learning rate down to 1e-8 until the final training step.
+
+[P35-S00291] PDF pages [20]
+When reporting negative log-likelihood, we dequantize using the standard uniform dequantization.
+
+[P35-S00292] PDF pages [20]
+Estimated values for different values of K are in Table 4.
+
+[P35-S00293] PDF pages [21]
+When computing FID/Inception scores for CIFAR10, ImageNet-32/64 we use the TensorFlow GAN library 2.
+
+[P35-S00294] PDF pages [21]
+To remain comparable to Dhariwal & Nichol (2021) for ImageNet-128 we use the evaluation script they include in their publicly available code repository 3.
+
+[P35-S00295] PDF pages [25]
+Flow Matching OT upsampled images from validation set.
+
+[P35-S00296] PDF pages [26]
+Flow Matching OT upsampled images from validation set.
+
+[P35-S00297] PDF pages [27]
+Flow matching with OT path trained on ImageNet-128.
+
+[P35-S00298] PDF pages [28]
+Flow matching with OT path trained on ImageNet 256×256.
+
+[P35-P011-B026] PDF pages [11]
+High-fidelity image generation with fewer labels. In International conference on machine learning, pp. 4183-4192. PMLR, 2019.
+
+[P35-P011-B035] PDF pages [11]
+In International Conference on Machine Learning, pp. 8162-8171. PMLR, 2021.
+
+[P35-P012-B017] PDF pages [12]
+learning using nonequilibrium thermodynamics. In International Conference on Machine Learning, pp. 2256-2265. PMLR, 2015.
+
+[P35-P012-B029] PDF pages [12]
+A dynamic optimal transport network for modeling cellular dynamics. In International conference on machine learning, pp. 9526-9536. PMLR, 2020.
+
+[P35-P013-B003] PDF pages [13]
+larity for generative models. CoRR, abs/1908.11462, 2019. URL http://arxiv.org/abs/ 1908.11462.
