@@ -63,7 +63,7 @@
     .progress-track { height: 4px; margin-top: 9px; background: #27302a; border-radius: 2px; overflow: hidden; }
     .progress-fill { height: 100%; width: 0; background: var(--green); transition: width .2s ease; }
     .toolbar {
-      display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto;
+      display: grid; grid-template-columns: minmax(200px, 1fr) auto auto auto auto auto;
       align-items: center; gap: 10px; padding: 12px;
       border: 1px solid var(--line); border-radius: 8px; background: rgba(23, 29, 26, .92);
     }
@@ -108,10 +108,14 @@
     }
     .view-tab[aria-pressed="true"] { background: #2a3730; color: var(--text); }
     .view-tab-count { margin-left: 4px; color: var(--green); font-variant-numeric: tabular-nums; }
+    .storage-actions { display: flex; gap: 6px; }
+    .storage-actions .button { min-height: 36px; padding: 0 9px; font-size: 12px; }
+    .file-input { display: none; }
     .page-meta {
       display: flex; align-items: center; justify-content: space-between; gap: 16px;
       margin: 21px 2px 10px; color: var(--muted); font-size: 12px;
     }
+    .storage-status { min-height: 1.65em; text-align: right; }
     .entries { border-top: 1px solid var(--line); }
     .entry {
       display: grid; grid-template-columns: 78px minmax(0, 1fr);
@@ -152,6 +156,7 @@
       .toolbar { grid-template-columns: 1fr auto; gap: 9px; padding: 10px; }
       .search-wrap { grid-column: 1 / -1; }
       .view-tabs { grid-column: 1 / -1; justify-self: start; }
+      .storage-actions { grid-column: 1 / -1; }
       .toolbar-meta { text-align: left; }
       .jump { justify-self: end; }
       .pager { grid-column: 1 / -1; justify-content: space-between; }
@@ -160,6 +165,7 @@
       .word { font-size: 23px; }
       .gloss { font-size: 16px; }
       .page-meta { align-items: start; flex-direction: column; gap: 3px; }
+      .storage-status { text-align: left; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
@@ -202,6 +208,11 @@
         <button class="view-tab" id="all-tab" type="button" aria-pressed="true">全部</button>
         <button class="view-tab" id="saved-tab" type="button" aria-pressed="false">个人词本<span class="view-tab-count" id="saved-count">0</span></button>
       </nav>
+      <div class="storage-actions" aria-label="个人词本文件操作">
+        <button class="button" id="export-saved" type="button" title="下载个人词本备份">导出</button>
+        <button class="button" id="import-saved" type="button" title="从备份文件导入并合并">导入</button>
+        <input class="file-input" id="import-file" type="file" accept="application/json,.json">
+      </div>
       <div class="toolbar-meta" id="result-count"><strong>1–50</strong> / 2,500</div>
       <label class="jump">跳至
         <input class="jump-input" id="jump" type="number" min="1" max="50" value="1" aria-label="跳转到页码">
@@ -215,7 +226,7 @@
 
     <div class="page-meta">
       <span id="page-range">词频排名 1–50</span>
-      <span>ENGLISH / 中文</span>
+      <span class="storage-status" id="storage-status" role="status" aria-live="polite">ENGLISH / 中文</span>
     </div>
     <section class="entries" id="entries" aria-live="polite"></section>
     <nav class="bottom-pager" aria-label="底部分页">
@@ -234,6 +245,7 @@
       const entriesNode = document.getElementById("entries");
       const jump = document.getElementById("jump");
       const savedCountNode = document.getElementById("saved-count");
+      const storageStatus = document.getElementById("storage-status");
       const savedStorageKey = "paperwords-personal-vocabulary-v1";
       let savedRanks = loadSavedRanks();
       let activeView = "all";
@@ -253,8 +265,61 @@
       function saveSavedRanks() {
         try {
           localStorage.setItem(savedStorageKey, JSON.stringify([...savedRanks]));
+          return true;
         } catch {
-          document.getElementById("page-range").textContent = "浏览器未能保存个人词本，请检查本地存储设置";
+          storageStatus.textContent = "浏览器本地保存失败，请导出备份";
+          return false;
+        }
+      }
+
+      function exportSavedVocabulary() {
+        const words = allEntries
+          .filter((entry) => savedRanks.has(entry.rank))
+          .map(({ rank, word }) => ({ rank, word }));
+        const backup = {
+          format: "paperwords-personal-vocabulary",
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          words
+        };
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "paperwords-personal-vocabulary.json";
+        document.body.append(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        storageStatus.textContent = `已导出 ${words.length} 个词`;
+      }
+
+      async function importSavedVocabulary(file) {
+        try {
+          const backup = JSON.parse(await file.text());
+          if (backup?.format !== "paperwords-personal-vocabulary"
+              || backup.version !== 1 || !Array.isArray(backup.words)) {
+            throw new Error("备份格式不正确");
+          }
+          const entriesByRank = new Map(allEntries.map((entry) => [entry.rank, entry]));
+          const importedRanks = backup.words
+            .filter((item) => Number.isInteger(item?.rank)
+              && typeof item.word === "string"
+              && entriesByRank.get(item.rank)?.word === item.word)
+            .map((item) => item.rank);
+          const previousRanks = new Set(savedRanks);
+          for (const rank of importedRanks) savedRanks.add(rank);
+          if (!saveSavedRanks()) {
+            savedRanks = previousRanks;
+            return;
+          }
+          const added = savedRanks.size - previousRanks.size;
+          storageStatus.textContent = `已导入 ${added} 个新词，个人词本共 ${savedRanks.size} 个`;
+          refreshResults(false);
+        } catch (error) {
+          storageStatus.textContent = error instanceof SyntaxError
+            ? "导入失败：文件不是有效的 JSON"
+            : `导入失败：${error.message}`;
         }
       }
 
@@ -370,15 +435,25 @@
         const button = event.target.closest("[data-save-rank]");
         if (!button) return;
         const rank = Number(button.dataset.saveRank);
-        if (savedRanks.has(rank)) savedRanks.delete(rank);
+        const wasSaved = savedRanks.has(rank);
+        if (wasSaved) savedRanks.delete(rank);
         else savedRanks.add(rank);
-        try {
-          localStorage.setItem(savedStorageKey, JSON.stringify([...savedRanks]));
-        } catch {
-          savedRanks.delete(rank);
-          document.getElementById("page-range").textContent = "浏览器未能保存个人词本，请检查本地存储设置";
+        if (!saveSavedRanks()) {
+          if (wasSaved) savedRanks.add(rank);
+          else savedRanks.delete(rank);
+        } else {
+          storageStatus.textContent = "个人词本已保存在当前浏览器";
         }
         refreshResults(false);
+      });
+      document.getElementById("export-saved").addEventListener("click", exportSavedVocabulary);
+      document.getElementById("import-saved").addEventListener("click", () => {
+        document.getElementById("import-file").click();
+      });
+      document.getElementById("import-file").addEventListener("change", (event) => {
+        const [file] = event.target.files || [];
+        if (file) importSavedVocabulary(file);
+        event.target.value = "";
       });
       document.getElementById("all-tab").addEventListener("click", () => {
         activeView = "all";
